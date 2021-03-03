@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.13)
+#set(PICO_CXX_ENABLE_EXCEPTIONS 1)
+set(CMAKE_CXX_STANDARD 14)
+include(pico_sdk_import.cmake)
+project(XY2Scanner)
+pico_sdk_init()
+
+
+add_executable(lasteroids
+	utilities.cpp
+	demos.cpp
+	XY2.cpp
+	main.cpp
+	)
+
+pico_generate_pio_header(lasteroids ${CMAKE_CURRENT_LIST_DIR}/XY2-100.pio)
+
+pico_enable_stdio_usb(lasteroids 1)
+pico_enable_stdio_uart(lasteroids 1)
+target_link_libraries(lasteroids pico_stdlib hardware_rtc pico_multicore hardware_pio hardware_dma)
+pico_add_extra_outputs(lasteroids)
+target_link_libraries(lasteroids pico_stdlib)
+

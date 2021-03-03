@@ -1,0 +1,202 @@
+; copyright 2021 kio@little-bat.de
+; BSD 2-clause license
+
+; based on:
+; Copyright (c) 2021 Mathema GmbH
+; SPDX-License-Identifier: BSD-3-Clause
+; Author: Günter Woigk (Kio!)
+
+
+; -----------------------------------------------------------------------
+; XY2-100 Interface
+; clock for all state machines must be 8 MHz
+; cpu must write channel x and y data before laser ON/OFF control data
+; data should be pushed by software (not dma) for easier stalling on full TX fifo
+; -----------------------------------------------------------------------
+
+.define public XY2_SM_CLOCK 8000000	; all SMs of the XY2 IF use the same clock
+
+.define HIGH 0b01       ; pin N = 1,  pin N+1 = !1
+.define LOW  0b10       ; pin N = 0,  Pin N+1 = !0
+
+
+
+; -----------------------------------------------------------------------
+; generate 2MHz clock and sync pulse on Parity bit
+;
+; clock:	SM clock must be 8 MHz
+;
+; SIDESET:	clock+ and clock- pins are SIDESET PINS 0, 1
+; 			sync+  and sync-  pins are SIDESET PINS 2, 3
+;
+; Synchronization:
+;
+; The startup delay is 4cc  (during which a 'parity bit' cycle is emitted)
+
+.program xy2_clock
+.side_set 4
+
+.define SYNC_HIGH  HIGH*4
+.define SYNC_LOW   LOW*4
+.define CLOCK_HIGH HIGH
+.define CLOCK_LOW  LOW
+
+.wrap_target
+public start:
+    nop			side (SYNC_LOW + CLOCK_HIGH) 	[1]	; bit 20: parity
+    set x, 18	side (SYNC_LOW + CLOCK_LOW)		[1]	; => 19 loops
+a:	nop			side (SYNC_HIGH + CLOCK_HIGH) 	[1]	; bits 1..19
+    jmp x-- a	side (SYNC_HIGH + CLOCK_LOW)	[1]
+.wrap
+
+
+
+
+; -----------------------------------------------------------------------
+; send Laser ON/OFF control signal
+;
+; This state machine emits the laser ON/OFF control signal and synchronizes
+; the read/don't read decision for the tx fifos of all state machines.
+; Therefore the data for this fifo must always be written after X and Y data!
+;
+; clock: 	8 MHz (same as for all state machines of this XY2 interface)
+;
+; OUT:     	1 pin: laser control
+; SIDESET: 	1 pin: xy sync pin
+; EXECCTRL: register must be configured for STATUS to STATUS_TX_LESSTHAN, 1
+;
+; The SM expects 10 bit of data controlling the laser during one XY2 frame.
+; The bits is shifted out LSB first with 1 MHz.
+; In the simplest case the 10 bits of data may be all 0 (laser off) or all 1 (laser on).
+;
+; The laser data immediately controls the laser while the X/Y data is transmitted.
+; => the laser control signal takes effect more than 1 frame before the scanner moves
+; 	 and must be delayed accordingly by the application.
+;	 The scanner will probably add some more delay on it's own.
+;
+; Synchronization:
+;
+; 1: The startup delay is 5cc.
+;
+; 2: During the last bit of a frame the state of the tx fifo is tested
+;	 and the xy sync pin is set:
+; 	 1 => fifo empty: all state machines must not read the fifo but use old data instead
+;	 0 => data available: all state machines must read the fifo for new data.
+;	 This pin is set 3cc after startup or 2cc before start of next frame.
+;    Because the laser has a start-up delay of 5cc while clock and data have only 4cc,
+;    the data SMs see this change at 1cc before their start of a new frame.
+
+.program xy2_laser
+.side_set 1 opt					; the fifo synchronization pin
+
+public start:
+
+.wrap_target
+	mov osr, null 				; load OSR = 0x0000 => laser off if fifo empty
+	mov x, status				; read status: status=1 => tx fifo empty
+    jmp !x, a					; => pull fom fifo
+	jmp b		side 1			; => don't pull, laser off	side-set 1: => fifo empty
+a:	pull		side 0			; load OSR from fifo		side-set 0: => fifo !empty
+
+b:	out pins,1		[1]
+	jmp !osre, c	[1]
+.wrap
+
+c:	jmp b 			[3]
+
+
+
+
+; -----------------------------------------------------------------------
+; send X or Y data
+;
+; SIDESET:  data+ and data- is emitted on the side-set pins
+; JMP PIN:  the JMP PIN is used to test the fifo synchronization bit
+;
+; if JMP PIN indicates Y OSR empty, then X and Y repeat the last value
+;
+; shift must be configured to pull_threshold=32 because we shift out msb first
+;   and the SM throws away the upper 16 bits
+
+
+.program xy2_data
+.side_set 2 opt         ; the data+ and data- pins
+
+.define DATA_HIGH HIGH
+.define DATA_LOW  LOW
+
+
+; if fifo runs dry then data must be repeated:
+; we can't simply pull non-blocking, because fifos are not written at the same time.
+
+;public start:
+;    nop			[3]					; start delay 4cc to wait for xy2 clock
+
+next_word:
+
+	jmp pin, tx_empty	side DATA_LOW	[3]
+	;nop 				side DATA_LOW	[3]
+
+; tx fifos not empty: pull next value from fifo:
+tx_not_empty:
+    pull block  						; load OSR from TX fifo		((should also work with BLOCK))
+    mov x, osr                      	; store value for possible repeat.
+	jmp tx			[1]					; note: does not 'empty' the OSR
+
+; tx fifos empty: repeat last value from x register:
+tx_empty:
+    mov osr,x		[3]					; reload OSR from old value
+    ;jmp tx
+
+
+tx: out null,16  side DATA_HIGH [1]		; skip upper bits;  side-set: last bit of '001' header
+
+
+; send data bits:
+; parity bit is store 'in program flow'
+
+
+; parity is currently 'even':
+loop_even:
+    out y, 1            	            ; get next data bit
+    jmp !y, send_0_even
+
+send_1_even:
+    jmp loop_end_odd  side DATA_HIGH    ; bit '1'  and toggle to parity odd
+
+send_0_even:
+    jmp loop_end_even  side DATA_LOW    ; bit '0'  and keep parity even
+
+
+; parity is currently 'odd':
+loop_odd:
+    out y, 1                	        ; get next data bit
+    jmp !y, send_0_odd
+
+send_1_odd:
+    jmp loop_end_even  side DATA_HIGH   ; bit '1'  and toggle to parity even
+
+send_0_odd:
+    jmp loop_end_odd  side DATA_LOW     ; bit '0'  and keep parity odd
+
+
+loop_end_even:
+    jmp !osre, loop_even
+    nop [1]
+    jmp next_word  side DATA_HIGH [3]   ; send PE = '1'
+
+loop_end_odd:
+    jmp !osre, loop_odd
+    nop [1]
+public start:
+    jmp next_word  side DATA_LOW [3]    ; send PE = '0'
+
+
+
+
+
+
+
+
+
+

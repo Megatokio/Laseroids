@@ -113,7 +113,7 @@ void drawLissajous (FLOAT width, FLOAT height, LissajousData& p, const LaserSet&
 	p.x_scale = width / 2;
 	p.y_scale = height / 2;
 
-	XY2::drawPolyLine(10000, [&p]()
+	XY2::drawPolyLine(2500, [&p]()
 	{
 		p.f_ratio_angle += p.f_ratio_angle_step;
 		if (p.f_ratio_angle >= pi) p.f_ratio_angle -= pi*2;

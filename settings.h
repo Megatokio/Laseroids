@@ -62,3 +62,16 @@ constexpr uint LASER_JUMP_DELAY = 6;	// after jump
 #define XY2_IMPLEMENT_ANALOGUE_CLOCK_DEMO
 #define XY2_IMPLEMENT_CHECKER_BOARD_DEMO
 #define XY2_IMPLEMENT_LISSAJOUS_DEMO
+
+
+// ADC settings
+#define PIN_ADC_CORE0_IDLE 26
+#define PIN_ADC_CORE1_IDLE 27
+#define ADC_CORE0_IDLE  0
+#define ADC_CORE1_IDLE  1
+#define ADC_TEMPERATURE 4
+
+// OLED settings
+#define I2C_OLED_PIN_SDA  2
+#define I2C_OLED_PIN_SCK  3
+#define I2C_OLED i2c1

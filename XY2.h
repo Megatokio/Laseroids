@@ -37,7 +37,6 @@ enum DrawCmd
 	CMD_LINETO,		// LaserSet, Point		uses delay_a and delay_e
 	CMD_LINE,       // LaserSet, 2*Point
 	CMD_RECT,       // LaserSet, Rect
-	CMD_CIRCLE,     // LaserSet, Rect, angle0, steps
 	CMD_POLYLINE,   // LaserSet, flags, n, n*Point
 
 	CMD_SET_ROTATION_CW,		// rad
@@ -75,7 +74,7 @@ enum PolyLineOptions
 	POLYLINE_CLOSED   = 4
 };
 
-class LaserQueue : public Queue<Data32,64>
+class LaserQueue : public Queue<Data32,256>
 {
 	// Note:
 	// push only on core 0
@@ -195,8 +194,8 @@ private:
 	static void pio_wait_free ()
 	{
 		// we must test the X (or Y) data fifo, not the laser fifo,
-		// because they may test full differently because they are
-		// not read at the same time!
+		// because they may be filled differently because they are
+		// not read at the same time by the SMs!
 
 		if (pio_sm_is_tx_fifo_full(pio,sm_x))
 		{
@@ -242,7 +241,6 @@ private:
 	static void line_to (Point dest, const LaserSet&);
 	static void draw_line (const Point& start, const Point& dest, const LaserSet&);
 	static void draw_rect (const Rect& rect, const LaserSet&);
-	static void draw_ellipse (const Rect& bbox, FLOAT angle0, uint steps, const LaserSet&);
 	static void draw_polyline (uint count, std::function<Point()> readNextPoint, const LaserSet&, uint options);
 };
 

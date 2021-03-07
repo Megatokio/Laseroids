@@ -83,13 +83,21 @@ void XY2::drawRect (const Rect& rect, const LaserSet& set)
 	laser_queue.push(rect);
 }
 
-void XY2::drawEllipse (const Rect& bbox, FLOAT angle0, uint steps, const LaserSet& set)
+void XY2::drawEllipse (const Rect& bbox, FLOAT angle, uint steps, const LaserSet& set)
 {
-	laser_queue.push(CMD_CIRCLE);
-	laser_queue.push(&set);
-	laser_queue.push(bbox);
-	laser_queue.push(angle0);
-	laser_queue.push(steps);
+	Point center = bbox.center();
+	FLOAT fx = bbox.width()/2;
+	FLOAT fy = bbox.height()/2;
+
+	FLOAT step = 2*pi / FLOAT(steps);
+
+	drawPolyLine(steps,[center,fx,fy,step,&angle]()
+	{
+		FLOAT a = angle;
+		angle += step;
+		return center + Dist(fx*cos(a),fy*sin(a));
+	},
+	set, POLYLINE_CLOSED);
 }
 
 void XY2::drawPolyLine (uint count, std::function<Point()> nextPoint, const LaserSet& set,
@@ -288,15 +296,6 @@ void XY2::worker()
 			const LaserSet* set = laser_queue.pop().set;
 			Rect rect = laser_queue.pop_Rect();
 			draw_rect(rect,*set);
-			continue;
-		}
-		case CMD_CIRCLE:    // LaserSet, Rect, angle0, steps
-		{
-			const LaserSet* set = laser_queue.pop().set;
-			Rect bbox = laser_queue.pop_Rect();
-			FLOAT angle0 = laser_queue.pop().f;
-			uint steps = laser_queue.pop().u;
-			draw_ellipse(bbox, angle0, steps, *set);
 			continue;
 		}
 		case CMD_POLYLINE:  // LaserSet, flags, n, n*Point
@@ -585,23 +584,6 @@ void XY2::draw_line (const Point& start, const Point& dest, const LaserSet& set)
 {
 	move_to(start);
 	line_to(dest,set);
-}
-
-void XY2::draw_ellipse (const Rect& bbox, FLOAT angle, uint steps, const LaserSet& set)
-{
-	Point center = bbox.center();
-	FLOAT fx = bbox.width()/2;
-	FLOAT fy = bbox.height()/2;
-
-	FLOAT step = 2*pi / FLOAT(steps);
-
-	draw_polyline(steps,[center,fx,fy,step,&angle]()
-	{
-		FLOAT a = angle;
-		angle += step;
-		return center + Dist(fx*cos(a),fy*sin(a));
-	},
-	set, POLYLINE_CLOSED);
 }
 
 void XY2::draw_rect (const Rect& bbox, const LaserSet& set)

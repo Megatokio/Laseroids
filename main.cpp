@@ -62,18 +62,22 @@ FLOAT map_range (FLOAT v, FLOAT min1, FLOAT max1, FLOAT min2, FLOAT max2)
 	return min2 + (max2-min2) * (v-min1) / (max1-min1);
 }
 
-static volatile uint  adc_core0_min = 1<<12;
-static volatile uint  adc_core0_max = 0;
-static volatile FLOAT adc_core0_avg = 1<<11;
-static volatile uint  adc_core1_min = 1<<12;
-static volatile uint  adc_core1_max = 0;
-static volatile FLOAT adc_core1_avg = 1<<11;
-static volatile FLOAT adc_avg_temperature = (1<<12) * 0.7f/3.3f;	// something around 27°C
-static volatile uint  adc_current_channel = 4; // ADC_TEMPERATURE;	// startup with temperature
-static volatile uint  adc_errors = 0;
-static volatile uint  adc_count = 0;
 static constexpr FLOAT adc_clock_divider = 0xffffu; // FLOAT(0xffffffu)/256;
 static constexpr FLOAT adc_clock = FLOAT(48e6) / adc_clock_divider;
+
+static volatile uint  adc_current_channel = 4; // ADC_TEMPERATURE;	// startup with temperature
+static volatile uint  adc_errors = 0;
+
+static volatile uint   adc_core0_count = 0;
+static volatile uint   adc_core0_min = 1<<12;
+static volatile uint   adc_core0_max = 0;
+static volatile uint32 adc_core0_sum = 0;
+static volatile uint   adc_core1_count = 0;
+static volatile uint   adc_core1_min = 1<<12;
+static volatile uint   adc_core1_max = 0;
+static volatile uint32 adc_core1_sum = 0;
+static volatile uint   adc_temperature_count = 0;
+static volatile uint32 adc_temperature_sum = 0; // (1<<12) * 0.7f/3.3f;	// something around 27°C
 
 static_assert (ADC_CORE0_IDLE == 0, "");
 static_assert (ADC_CORE1_IDLE == 1, "");
@@ -84,7 +88,6 @@ void __not_in_flash_func(adc_irq_handler) () noexcept
 {
 	while (!adc_fifo_is_empty())
 	{
-		adc_count++;
 		uint value = adc_fifo_get();
 		bool error = value & 1<<12;
 
@@ -95,17 +98,20 @@ void __not_in_flash_func(adc_irq_handler) () noexcept
 		else switch (adc_current_channel)
 		{
 		case 0:
+			adc_core0_count++;
+			adc_core0_sum += value;
 			adc_core0_min = min(adc_core0_min,value);
 			adc_core0_max = max(adc_core0_max,value);
-			adc_core0_avg = adc_core0_avg * 0.99f + FLOAT(value) * 0.01f;
 			break;
 		case 1:
+			adc_core1_count++;
+			adc_core1_sum += value;
 			adc_core1_min = min(adc_core1_min,value);
 			adc_core1_max = max(adc_core1_max,value);
-			adc_core1_avg = adc_core1_avg * FLOAT(0.99) + FLOAT(value) * FLOAT(0.01);
 			break;
 		default:
-			adc_avg_temperature = adc_avg_temperature * FLOAT(0.99) + FLOAT(value) * FLOAT(0.01);
+			adc_temperature_count++;
+			adc_temperature_sum += value;
 			break;
 		}
 
@@ -133,6 +139,7 @@ int main()
 
 
 	printf("init ADC\n");
+	printf("sample frequency = %u Hz (all channels)\n", uint(adc_clock+FLOAT(0.5)));
 	adc_init();
 	if (0)	// if adc can be restarted
 	{
@@ -159,15 +166,15 @@ int main()
 	adc_set_clkdiv(adc_clock_divider);	// slowest possible: 832 measurements / sec
 	adc_run(true);
 
-	//printf("start ADC\n");
-	//while(temperature >= 27 && temperature <= 27)
-	//{
-	//	if (!adc_fifo_is_empty())
-	//	{
-	//		printf("ADC interrupt failed to start\n");
-	//		for(;;);
-	//	}
-	//}
+	printf("start ADC\n");
+	while (adc_temperature_count == 0)
+	{
+		if (!adc_fifo_is_empty())
+		{
+			printf("ADC interrupt failed to start\n");
+			//for(;;);
+		}
+	}
 	printf("...ok\n");
 
 
@@ -296,6 +303,8 @@ int main()
 			switch(id++)
 			{
 			case 0:
+			{	FLOAT adc_core0_avg = FLOAT(adc_core0_sum)/FLOAT(adc_core0_count);
+				while(adc_core0_count) { adc_core0_count = 0; adc_core0_sum = 0; }
 				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
 					   int(map_range(FLOAT(adc_core0_max), 0,1<<12, 100,0)),
 					   int(map_range(adc_core0_avg, 0,1<<12, 100,0)),
@@ -306,8 +315,10 @@ int main()
 				//	   double(map_range(FLOAT(adc_core0_min), 0,1<<12, 0,3.3f)));
 				adc_core0_max = 0;
 				adc_core0_min = 1<<12;
-				break;
+			}	break;
 			case 1:
+			{	FLOAT adc_core1_avg = FLOAT(adc_core1_sum)/FLOAT(adc_core1_count);
+				while(adc_core1_count) { adc_core1_count = 0; adc_core1_sum = 0; }
 				printf("load core1 = %i%% %i%% %i%% (min,avg,max)\n",
 					   int(map_range(FLOAT(adc_core1_max), 0,1<<12, 100,0)),
 					   int(map_range(adc_core1_avg, 0,1<<12, 100,0)),
@@ -318,10 +329,11 @@ int main()
 				//	   double(map_range(FLOAT(adc_core1_min), 0,1<<12, 0,3.3f)));
 				adc_core1_max = 0;
 				adc_core1_min = 1<<12;
-				break;
+			}	break;
 			case 2:
-			{	FLOAT voltage = map_range(adc_avg_temperature, 0, 1<<12, 0, FLOAT(3.3));
-				//FLOAT temperature = 27 - (voltage - FLOAT(0.706)) / FLOAT(0.001721);
+			{	FLOAT adc_avg_temperature = FLOAT(adc_temperature_sum) / FLOAT(adc_temperature_count);
+				while(adc_temperature_count) { adc_temperature_count = 0; adc_temperature_sum = 0; }
+				FLOAT voltage = map_range(adc_avg_temperature, 0, 1<<12, 0, FLOAT(3.3));
 				FLOAT temperature = map_range(voltage, 0.706f, 0.706f-0.001721f, 27, 28);
 				static constexpr char deg = 0xB0;
 				uint temp = uint(temperature*10);
@@ -335,9 +347,9 @@ int main()
 
 			}	break;
 			default:
-				static constexpr uint num_cases = 4;
-				printf("adc conversions: %u/sec\n",adc_count / num_cases);
-				adc_count = 0;
+				//static constexpr uint num_cases = 4;
+				//printf("adc conversions: %u/sec\n",adc_count / num_cases);
+				//adc_count = 0;
 				id=0;
 				break;
 			}

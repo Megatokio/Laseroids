@@ -37,11 +37,9 @@
 */
 
 
-// dummies for syntax checher:
-#ifndef L
-#define L 0xff
-#define E 0xff
-#endif
+#define L	127	// straight line
+#define R	126	// rounded line
+#define E	125	// end. E must be lowest
 
 
 signed char vt_font_data[] =
@@ -270,7 +268,7 @@ signed char vt_font_data[] =
 
 // O
 	0b00111110, 0b00111110,
-	L, 1,0, 0,2, 0,4, 1,6, 3,6, 4,4, 4,2, 3,0, 1,0, E,
+	R, 1,0, 0,2, 0,4, 1,6, 3,6, 4,4, 4,2, 3,0, 1,0, E,
 
 // P
 	0b01000001, 0b00001110,
@@ -291,7 +289,7 @@ signed char vt_font_data[] =
 
 // S
 	0b00100110, 0b00110000,
-	L, 0,1, 1,0, 3,0, 4,1, 4,2, 3,3, 0,4, 0,5, 1,6, 3,6, E,
+	R, 0,1, 1,0, 3,0, 4,1, 4,2, 3,3, 0,4, 0,5, 1,6, 3,6, E,
 
 // T
 	0b00000011, 0b00000011,

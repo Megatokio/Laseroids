@@ -38,6 +38,7 @@ enum DrawCmd
 	CMD_LINE,       // LaserSet, 2*Point
 	CMD_RECT,       // LaserSet, Rect
 	CMD_POLYLINE,   // LaserSet, flags, n, n*Point
+	CMD_PRINT_TEXT,	// 2*LaserSet, Point, 2*FLOAT, n*char, 0
 
 	CMD_SET_ROTATION_CW,		// rad
 	CMD_SET_SCALE,				// fx, fy
@@ -171,6 +172,8 @@ public:
 	static void drawPolyLine (uint count, const Point points[], const LaserSet&, PolyLineOptions=POLYLINE_DEFAULT);
 	static void drawPolygon (uint count, std::function<Point()> nextPoint, const LaserSet&);
 	static void drawPolygon (uint count, const Point points[], const LaserSet&);
+	static void printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool centered = false,
+						   const LaserSet& = slow_straight, const LaserSet& = slow_rounded);
 	static void setRotationCW (FLOAT rad);
 	static void setScale (FLOAT f);
 	static void setScale (FLOAT fx, FLOAT fy);
@@ -237,11 +240,12 @@ private:
 	}
 
 	static void draw_to (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay);
-	static void move_to (Point dest) { line_to(dest,laser_set[0]); }
-	static void line_to (Point dest, const LaserSet&);
+	static void move_to (const Point& dest) { line_to(dest,laser_set[0]); }
+	static void line_to (const Point& dest, const LaserSet&);
 	static void draw_line (const Point& start, const Point& dest, const LaserSet&);
 	static void draw_rect (const Rect& rect, const LaserSet&);
 	static void draw_polyline (uint count, std::function<Point()> readNextPoint, const LaserSet&, uint options);
+	static void print_char (Point& textpos, FLOAT scale_x, FLOAT scale_y, const LaserSet& straight, const LaserSet& rounded, uint8& rmask, char c);
 };
 
 

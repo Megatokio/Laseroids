@@ -37,6 +37,11 @@ LaserSet laser_set[8] =
 	LaserSet{.speed=SLOW, .pattern=0x3FF, .delay_a=A, .delay_m=M, .delay_e=E},	// slow straight
 	LaserSet{.speed=FAST, .pattern=0x3FF, .delay_a=A, .delay_m=0, .delay_e=E},	// fast rounded
 	LaserSet{.speed=SLOW, .pattern=0x3FF, .delay_a=A, .delay_m=0, .delay_e=E},	// slow rounded
+
+	#undef E
+	#undef A
+	#undef M
+	#undef J
 };
 
 
@@ -128,6 +133,69 @@ void XY2::drawPolygon (uint count, std::function<Point()> nextPoint, const Laser
 void XY2::drawPolygon (uint count, const Point points[], const LaserSet& set)
 {
 	drawPolyLine(count,points,set,POLYLINE_CLOSED);
+}
+
+#include "vt_vector_font.h"			// int8 vt_font_data[];
+
+static uint vt_font_col1[256];		// index in vt_font_data[]
+static int8 vt_font_width[256];		// character print width (including +1 for line width but no spacing)
+
+
+void vt_init_vector_font()
+{
+	for (uint i = 0, c=' '; c<NELEM(vt_font_col1) && i<NELEM(vt_font_data); c++)
+	{
+		vt_font_col1[c] = i;
+		i += 2;						// left-side mask and right-side mask
+
+		int8 width = 0;
+		while (vt_font_data[i++] > E)
+		{
+			while (vt_font_data[i] < E)
+			{
+				width = max(width,vt_font_data[i]);
+				i += 2;
+			}
+		}
+		vt_font_width[c] = width + 1;
+
+		assert(vt_font_data[i-1] == E);
+	}
+}
+
+
+FLOAT printWidth (cstr s)
+{
+	// calculate print width for string
+	// as printed by drawing command DrawText
+
+	int width = 0;
+	uint8 mask = 0;
+
+	while (uint8 c = uint8(*s++))
+	{
+		width += vt_font_width[c];
+		int8* p = vt_font_data + vt_font_col1[c];
+		if (mask & uint8(*p)) width++;	// +1 if glyphs would touch
+		mask = uint8(*(p+1));			// remember for next
+	}
+	return FLOAT(width);
+}
+
+void XY2::printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool centered,
+					 const LaserSet& straight, const LaserSet& rounded)
+{
+	// CMD_PRINT_TEXT, 2*LaserSet, Point, 2*FLOAT, n*char, 0
+
+	if (centered) start.x -= printWidth(text) * scale_x / 2;
+
+	laser_queue.push(CMD_PRINT_TEXT);
+	laser_queue.push(&straight);
+	laser_queue.push(&rounded);
+	laser_queue.push(start);
+	laser_queue.push(scale_x);
+	laser_queue.push(scale_y);
+	char c; do { laser_queue.push(c = *text++); } while (c);
 }
 
 void XY2::setRotationCW (FLOAT rad)
@@ -306,6 +374,21 @@ void XY2::worker()
 			draw_polyline(count, [](){return laser_queue.pop_Point();}, *set, flags);
 			continue;
 		}
+		case CMD_PRINT_TEXT: // 	2*LaserSet, Point, 2*FLOAT, n*char, 0
+		{
+			const LaserSet* straight = laser_queue.pop().set;
+			const LaserSet* rounded  = laser_queue.pop().set;
+			Point start   = laser_queue.pop_Point();
+			FLOAT scale_x = laser_queue.pop().f;
+			FLOAT scale_y = laser_queue.pop().f;
+
+			uint8 rmask = 0;
+			while (char c = char(laser_queue.pop().u))
+			{
+				print_char (start, scale_x, scale_y, *straight, *rounded, rmask, c);
+			}
+			continue;
+		}
 		case CMD_SET_ROTATION_CW:		// rad
 		{
 			FLOAT rad = laser_queue.pop().f;
@@ -457,6 +540,9 @@ void XY2::init()
 
 	// final configuration of GPIOs:
 	gpio_set_outover(pin_laser,GPIO_OVERRIDE_INVERT); 		// invert output: '1' = ON => pin low
+
+	// misc.:
+	vt_init_vector_font();
 }
 
 
@@ -480,7 +566,7 @@ void XY2::start()
 }
 
 
-void XY2::draw_to (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay)
+void __not_in_flash_func(XY2::draw_to) (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_on_delay, uint end_delay)
 {
 	// draw line to dest with speed
 	// while laser_on_delay > 0 use laser_off_pattern
@@ -536,7 +622,7 @@ void XY2::draw_to (Point dest, FLOAT speed, uint laser_on_pattern, uint& laser_o
 	}
 }
 
-void XY2::line_to (Point dest, const LaserSet& set)
+void XY2::line_to (const Point& dest, const LaserSet& set)
 {
 	const FLOAT speed = set.speed;
 	const uint laser_on_pattern = set.pattern;
@@ -545,7 +631,7 @@ void XY2::line_to (Point dest, const LaserSet& set)
 	draw_to(dest,speed,laser_on_pattern,laser_on_delay,delay);
 }
 
-void XY2::draw_polyline (uint count, std::function<Point()> next_point, const LaserSet& set, uint flags)
+void __not_in_flash_func(XY2::draw_polyline) (uint count, std::function<Point()> next_point, const LaserSet& set, uint flags)
 {
 	// draw polygon or polyline with 'count' points
 	//
@@ -593,6 +679,37 @@ void XY2::draw_rect (const Rect& bbox, const LaserSet& set)
 	line_to(bbox.bottom_right(), set);
 	line_to(bbox.bottom_left(), set);
 	line_to(bbox.top_left(), set);
+}
+
+void XY2::print_char (Point& p0, FLOAT scale_x, FLOAT scale_y, const LaserSet& straight, const LaserSet& rounded, uint8& rmask, char c)
+{
+	int8* p = vt_font_data + vt_font_col1[uchar(c)];
+
+	uint lmask = uint8(*p++);
+	if (rmask & lmask) p0.x += scale_x;		// apply kerning
+	rmask = uint8(*p++);					// for next kerning
+
+	while (*p != E)
+	{
+		int line_type = *p++;
+
+		const LaserSet& set = line_type == L ? straight : rounded;
+
+		Point pt;
+		pt.x = p0.x + *p++ * scale_x;
+		pt.y = p0.y + *p++ * scale_y;
+		move_to(pt);
+
+		uint delay_a = set.delay_a;
+		while (*p < E)
+		{
+			pt.x = p0.x + *p++ * scale_x;
+			pt.y = p0.y + *p++ * scale_y;
+			draw_to(pt, set.speed, set.pattern, delay_a, *p<E ? set.delay_m : set.delay_e);
+		}
+	}
+
+	p0.x += vt_font_width[uchar(c)] * scale_x;	// update print position
 }
 
 

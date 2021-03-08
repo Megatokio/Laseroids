@@ -343,17 +343,13 @@ int main()
 			}
 		}
 
-
-
-
-
 		xy2.setRotationCW(rad); rad += pi / 180; if (rad>pi) rad -= 2*pi;
 		//xy2.setShear(sx,sy); sx+=dsx; if(sx>=0.5f || sx<=-0.5f) dsx *= -1;
 		//xy2.setProjection(px,py); px+=dpx; if(px>0.00003f || px<-0.00003f) dpx *= -1;
 
 		static int demo = '2';
 		int c = getchar_timeout_us(0);
-		if (c>='1' && c<='3') demo = c;
+		if (c>='1' && c<='5') demo = c;
 
 		switch(demo)
 		{
@@ -365,6 +361,14 @@ int main()
 			break;
 		case '3':
 			drawLissajous (w,h, data, fast_rounded);
+			break;
+		case '4':
+			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true);
+			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true);
+			break;
+		case '5':
+			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true,fast_straight,fast_rounded);
+			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
 			break;
 		}
 	}

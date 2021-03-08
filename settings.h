@@ -35,7 +35,8 @@ constexpr uint PIN_XY2_Y_NEG    = PIN_XY2_Y + 1;
 constexpr uint PIN_XY2_X        = 14;
 constexpr uint PIN_XY2_X_NEG    = PIN_XY2_X + 1;
 
-constexpr uint PIN_XY2_SYNC_XY  = 17; // 30 or 31 geht nicht
+constexpr uint PIN_XY2_SYNC_XY  = 16; // 30 or 31 geht nicht
+constexpr uint PIN_XY2_SYNC_XY_READBACK = 17;   // externally connected to PIN_XY2_SYNC_XY for PWM input
 constexpr uint PIN_XY2_LASER	= 22; // laser on/off
 
 

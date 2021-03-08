@@ -94,9 +94,9 @@ public start:
 .wrap_target
 	mov osr, null 				; load OSR = 0x0000 => laser off if fifo empty
 	mov x, status				; read status: status=1 => tx fifo empty
-    jmp !x, a					; => pull fom fifo
-	jmp b		side 1			; => don't pull, laser off	side-set 1: => fifo empty
-a:	pull		side 0			; load OSR from fifo		side-set 0: => fifo !empty
+    jmp !x, a		side 0		; => pull fom fifo          side-set 0: => assert edge for dropout counter
+	jmp b		    side 1		; => don't pull, laser off	side-set 1: => fifo empty
+a:	pull		    side 0		; load OSR from fifo		side-set 0: => fifo !empty
 
 b:	out pins,1		[1]
 	jmp !osre, c	[1]

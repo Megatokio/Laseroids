@@ -25,6 +25,7 @@ extern "C" {
 #include "hardware/regs/intctrl.h"		// Scheiß Suchspiel
 //#include "hardware/divider.h"
 //#include "pico/divider.h"
+#include "hardware/pwm.h"
 
 static SSD1306 oled(128, 64, 0x3C, false);
 
@@ -170,6 +171,22 @@ int main()
 	printf("...ok\n");
 
 
+	// count overruns
+	// it seems not possible to read back PIN_XY2_SYNC_XY directly:
+	const uint gpio = PIN_XY2_SYNC_XY_READBACK;
+	// Only PWM B pins (odd pin numbers) can be used as inputs:
+	assert(pwm_gpio_to_channel(gpio) == PWM_CHAN_B);
+	const uint slice_num = pwm_gpio_to_slice_num(gpio);
+
+	// configure the PWM for counter mode:
+	pwm_config cfg = pwm_get_default_config();
+	pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
+	pwm_init(slice_num, &cfg, true);
+	gpio_set_function(gpio, GPIO_FUNC_PWM);
+	gpio_set_dir(gpio,GPIO_IN);
+
+	int overruns = 0;	// seen so far
+
 
 	printf("\nLasteroids - Asteroids on LaserScanner\n");
 	//while(getchar()!=13);
@@ -264,6 +281,12 @@ int main()
 		{
 			adc_last_second = second;
 
+			if (uint16 d = uint16(pwm_get_counter(slice_num) - overruns))
+			{
+				printf("***OVERRUN***: %u frames\n", d);
+				overruns += d;
+			}
+			else
 			if (adc_errors)
 			{
 				printf("");
@@ -312,7 +335,8 @@ int main()
 
 			}	break;
 			default:
-				printf("adc conversions: %u/sec\n",adc_count/4);
+				static constexpr uint num_cases = 4;
+				printf("adc conversions: %u/sec\n",adc_count / num_cases);
 				adc_count = 0;
 				id=0;
 				break;

@@ -14,14 +14,16 @@
 
 //static inline FLOAT sin (FLOAT a) { return sinf(a); }
 //static inline FLOAT cos (FLOAT a) { return cosf(a); }
-static const FLOAT pi = FLOAT(3.1415926538);
+static constexpr FLOAT pi = FLOAT(3.1415926538);
+static inline FLOAT rad4deg(FLOAT deg) { return pi/180 * deg; }
+static inline FLOAT rad4deg(int deg)   { return pi/180 * FLOAT(deg); }
 
 
 /*	Das Spielfeld ist nominal 10000 'Meter' groß und wrapt in beiden Dimensionen.
 */
-static constexpr int SIZE   = 0x10000;		// this should be SCANNER_WIDTH
-static constexpr int MAXPOS = +0x7fff;
-static constexpr int MINPOS = -0x8000;
+static constexpr FLOAT SIZE   = 0x10000;		// this should be SCANNER_WIDTH
+static constexpr FLOAT MAXPOS = +0x7fff;
+static constexpr FLOAT MINPOS = -0x8000;
 
 static constexpr uint NUM_ASTEROIDS = 3;
 
@@ -30,7 +32,7 @@ static constexpr uint NUM_ASTEROIDS = 3;
 static FLOAT costab[91];
 static void init_costab()
 {
-	for (uint16 i=0; i<=90; i++) costab[i] = cos(i * (pi/180));
+	for (uint16 i=0; i<=90; i++) costab[i] = cos(rad4deg(i));
 }
 
 static FLOAT cosin (int deg)
@@ -44,7 +46,7 @@ static FLOAT cosin (int deg)
 
 static inline FLOAT sinus (int deg)
 {
-	return cosin(deg+90);
+	return cosin(deg-90);
 }
 
 static inline uint rand (uint max)	// --> [0 .. max]
@@ -58,11 +60,6 @@ static inline uint rand (uint max)	// --> [0 .. max]
 	}
 }
 
-static inline int16 rand (int16 min, int16 max)	// --> [min .. max]
-{
-	return min + int16(rand(uint(max - min)));
-}
-
 static inline int rand (int min, int max)	// --> [min .. max]
 {
 	return min + int(rand(uint(max - min)));
@@ -73,10 +70,15 @@ static inline FLOAT rand (FLOAT max)
 	return FLOAT(rand()) * max / FLOAT(RAND_MAX);
 }
 
+static inline FLOAT rand (FLOAT min, FLOAT max)
+{
+	return min + rand(max-min);
+}
+
 void Object::wrap ()
 {
-	position.x = int16(position.x);
-	position.y = int16(position.y);
+	t.dx = int16(t.dx);
+	t.dy = int16(t.dy);
 	//if (position.x < MINPOS) position.x += SIZE;
 	//if (position.x > MAXPOS) position.x -= SIZE;
 	//if (position.y < MINPOS) position.y += SIZE;
@@ -88,11 +90,32 @@ void Object::wrap ()
 //							OBJECT
 // =====================================================================
 
+Object::Object (Transformation&& t, const Dist& movement, FLOAT rotation) :
+	t(std::move(t)),
+	movement(movement),
+	rotation(rotation)
+{}
+
+Object::Object (const Transformation& t, const Dist& movement, FLOAT rotation) :
+	t(t),
+	movement(movement),
+	rotation(rotation)
+{}
+
+Object::Object (const Point& position, FLOAT orientation, FLOAT scale, const Dist& movement, FLOAT rotation) :
+	t(),
+	movement(movement),
+	rotation(rotation)
+{
+	t.setRotationAndScale(orientation,scale);
+	t.setOffset(position);
+}
+
 void Object::move()
 {
-	position += speed;
+	t.addOffset(movement);
 	wrap();
-	orientation += rotation;
+	t.rotate(rotation);
 }
 
 
@@ -103,26 +126,24 @@ void Object::move()
 using StarPtr = Star*;
 
 Star::Star () :
-	Object(FLOAT(rand(MINPOS,MAXPOS)),FLOAT(rand(MINPOS,MAXPOS)))
+	Object(rand(MINPOS,MAXPOS),rand(MINPOS,MAXPOS))
 {
 	//printf("%s\n",__func__);
 }
 
 void Star::draw()
 {
+	XY2::setOffset(t.dx,t.dy);	// no need to set scale and rotation
 	static const LaserSet set {.speed=1, .pattern=0x3ff, .delay_a=0, .delay_m=0, .delay_e=12};
-	XY2::drawLine(position,position,set);	// TODO: drawPoint()
+	XY2::drawLine(Point(),Point(),set);	// TODO: drawPoint()
 }
-
-void Star::move()
-{}
 
 int compare_stars (const void* a, const void* b)
 {
 	const StarPtr f = StarPtr(a);
 	const StarPtr s = StarPtr(b);
-	if (f->position.x > s->position.x) return  1;
-	if (f->position.x < s->position.x) return -1;
+	if (f->t.dx > s->t.dx) return  1;
+	if (f->t.dx < s->t.dx) return -1;
 	return 0;
 }
 
@@ -135,46 +156,50 @@ void PlayerShip::draw()
 {
 	//printf("%s\n",__func__);
 
-	XY2::resetTransformation();
-	XY2::setScaleAndRotationCW(700,700,pi/180*orientation);
-	//XY2::setOffset(position);
+	XY2::setTransformation(t);
 
 	// thrust:
 	static Point acc[][3] =
 	{
-		{{-0.75f,0},{0,-1},{+0.75f,0}},	// acc=1
-		{{-1,0},    {0,-2},{+1,0}},		// acc=2
-		{{-1.25f,0},{0,-3},{+1.25f,0}}	// acc=3
+		{{-0.75f,-2.5f}, {0,-1-2.5f},{+0.75f,-2.5f}},	// acc=1
+		{{-1,    -2.5f}, {0,-2-2.5f},{+1,    -2.5f}},	// acc=2
+		{{-1.25f,-2.5f}, {0,-3-2.5f},{+1.25f,-2.5f}}	// acc=3
 	};
 	static bool flicker=0;
-	if (acceleration && (flicker=!flicker))
+	if (acceleration>=1 && (flicker=!flicker))
 	{
-		assert(acceleration>=1 && acceleration<=3);
-		XY2::drawPolyLine(3,acc[acceleration-1],fast_straight);
+		XY2::drawPolyLine(3,acc[minmax(0,int(acceleration)-1,2)],fast_straight);
 	}
 
 	static Point shape[] =
 	{
-		{0,0},
-		{-2,1},
-		{0,5},
-		{2,1},
-		{0,0},
-		{0,4.5f}
+		{0, -2},
+		{-2,-1},
+		{0,  3},
+		{2, -1},
+		{0, -2},
+		{0,2.5f}
 	};
 	XY2::drawPolyLine(6,shape,slow_straight);
 }
 
 void PlayerShip::move()
 {
+	Dist d{t.fx,t.fy}; d *= acceleration / d.length();
+	movement = movement + d;
 	Object::move();
 }
 
 PlayerShip::PlayerShip()
 {
 	printf("%s\n",__func__);
-	//orientation = -90;
-	acceleration = 2; // TEST
+
+	t.setScale(SIZE/90);
+	// t.orientation=0  = ok
+	// t.position={0,0} = ok
+
+	rotation = 2;		// TEST
+	acceleration = 2;	// TEST
 }
 
 
@@ -196,11 +221,20 @@ AlienShip::AlienShip(const Point& _position)
 //							BULLET
 // =====================================================================
 
-void Bullet::draw(){}
-void Bullet::move(){}
-Bullet::Bullet (const Point& _position, const Dist& direction, FLOAT _speed)
+void Bullet::draw()
+{
+	XY2::setTransformation(t);
+	XY2::drawLine(Point(0,0),Point(0,80),fast_straight);
+}
+
+//void Bullet::move(){}
+
+Bullet::Bullet (const Point& _position, const Dist& _movement) :
+	Object(_position)
 {
 	printf("%s\n",__func__);
+	t.setRotation(_movement.direction());
+	movement = _movement;
 }
 
 
@@ -210,8 +244,7 @@ Bullet::Bullet (const Point& _position, const Dist& direction, FLOAT _speed)
 
 void Asteroid::draw()
 {
-	XY2::setRotationCW(orientation*pi/180);
-	XY2::setOffset(position);
+	XY2::setTransformation(t);
 	XY2::drawPolygon(num_vertices,vertices,fast_rounded);
 }
 
@@ -220,26 +253,26 @@ void Asteroid::draw()
 //	Object::move();
 //}
 
-Asteroid::Asteroid (uint size, const Point& _position, const Dist& _speed, int16 _orientation, int16 _rotation) :
-	Object(_position,_speed,_orientation,_rotation),
+Asteroid::Asteroid (uint size, const Point& _position, const Dist& _speed, FLOAT _orientation, FLOAT _rotation) :
+	Object(_position,_orientation,1, _speed,_rotation),
 	size(size)
 {
 	//printf("%s\n",__func__);
 
-	int jitter;
+	FLOAT jitter;
 	switch(size)
 	{
-	case 1: num_vertices =  4; radians = SIZE/1000*15; jitter=int(radians/2); break;
-	case 2: num_vertices =  8; radians = SIZE/1000*25; jitter=int(radians/2); break;
-	case 3:	num_vertices = 12; radians = SIZE/1000*30; jitter=int(radians/3); break;
-	default:num_vertices = 16; radians = SIZE/1000*40; jitter=int(radians/4); break;
+	case 1: num_vertices =  4; radians = SIZE/1000*15; jitter = radians/2; break;
+	case 2: num_vertices =  8; radians = SIZE/1000*25; jitter = radians/2; break;
+	case 3:	num_vertices = 12; radians = SIZE/1000*30; jitter = radians/3; break;
+	default:num_vertices = 16; radians = SIZE/1000*40; jitter = radians/4; break;
 	}
 
 	for (uint i=0; i<num_vertices; i++)
 	{
 		int   a = int(360 * i / num_vertices);
-		FLOAT x = sinus(a) * radians + FLOAT(rand(-jitter,+jitter));
-		FLOAT y = cosin(a) * radians + FLOAT(rand(-jitter,+jitter));
+		FLOAT x = sinus(a) * radians + rand(-jitter,+jitter);
+		FLOAT y = cosin(a) * radians + rand(-jitter,+jitter);
 		new(vertices+i) Point(x,y);
 	}
 }
@@ -333,14 +366,14 @@ void Laseroids::decelerate()
 	if (player.acceleration > 0) player.acceleration--;
 }
 
-void Laseroids::rotate_CW()
-{
-	if (player.rotation < 2) player.rotation++;
-}
-
-void Laseroids::rotate_CCW()
+void Laseroids::rotate_right()
 {
 	if (player.rotation > -2) player.rotation--;
+}
+
+void Laseroids::rotate_left()
+{
+	if (player.rotation < 2) player.rotation++;
 }
 
 void Laseroids::activate_shield(bool f)
@@ -348,6 +381,13 @@ void Laseroids::activate_shield(bool f)
 	player.shield = f;
 }
 
+void Laseroids::shoot()
+{
+	if (num_bullets < NELEM(bullets))
+	{
+		//TODO
+	}
+}
 
 
 

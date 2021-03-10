@@ -358,9 +358,42 @@ int main()
 
 		static int demo = 2;
 		int c = getchar_timeout_us(0);
-		if (c>='1' && c<='6') { demo = c-'0'; XY2::resetTransformation(); }
+		if (c > 0)
+		{
+			if (c>='1' && c<='6')
+			{
+				demo = c-'0';
+				XY2::resetTransformation();
+				laseroids.lives = 0;		// => reset if Laseroids demo started
+			}
+			else if (demo == 6)	// Laseroids
+			{
+				laseroids.activate_shield(false);
+				switch(c)
+				{
+				case 'q':
+					laseroids.accelerate();
+					break;
+				case 'a':
+					laseroids.decelerate();
+					break;
+				case 'o':
+					laseroids.rotate_left();
+					break;
+				case 'p':
+					laseroids.rotate_right();
+					break;
+				case ' ':
+					laseroids.shoot();
+					break;
+				case 'y':
+					laseroids.activate_shield(1);
+					break;
+				}
+			}
+		}
 
-		xy2.setRotationCW(rad); rad += pi / 180; if (rad>pi) rad -= 2*pi;
+		xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
 		//xy2.setShear(sx,sy); sx+=dsx; if(sx>=0.5f || sx<=-0.5f) dsx *= -1;
 		//xy2.setProjection(px,py); px+=dpx; if(px>0.00003f || px<-0.00003f) dpx *= -1;
 

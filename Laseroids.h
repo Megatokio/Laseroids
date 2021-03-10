@@ -13,25 +13,30 @@ class Object
 {
 public:
 	Object (){}
-	Object (const Point& position, const Dist& speed, int16 orientation, int16 rotation) :
-		position(position),speed(speed),orientation(orientation),rotation(rotation) {}
-	Object (const Point& position) : position(position) {}
-	Object (FLOAT x, FLOAT y) : position(x,y) {}
+	~Object (){}
+	Object (Transformation&&, const Dist& movement, FLOAT rotation=0);
+	Object (const Transformation&, const Dist& movement, FLOAT rotation=0);
+	Object (const Point& position, FLOAT orientation, FLOAT scale, const Dist& movement, FLOAT rotation);
+	Object (const Point& position) { t.setOffset(position); }
+	Object (FLOAT x, FLOAT y) { t.setOffset(x,y); }
 	virtual void draw() = 0;
 	virtual void move();
 	void wrap();
 
-	Point position;			// x,y [m]
-	Dist  speed;			// dx,dy [m/s]
-	int16 orientation=0;	// deg, 0° = heading right, CW
-	int16 rotation=0;		// rotational speed deg/s
+	Transformation t;	// -> position, rotation and scale
+
+	Point getPosition() { return Point(t.dx,t.dy); }
+	FLOAT getOrientation(){ return Dist(t.fy,t.fx).direction(); }
+
+	Dist  movement;			// dx,dy
+	FLOAT rotation=0;		// rotational speed
 };
 
 class Star : public Object
 {
 public:
 	virtual void draw() override;
-	virtual void move() override;
+	virtual void move() override {} // does not move
 	Star();
 };
 
@@ -45,14 +50,14 @@ public:
 	virtual void draw() override;
 	//virtual void move() override;
 	Asteroid(){}
-	Asteroid(uint size_id, const Point& position, const Dist& speed, int16 orientation=0, int16 rotation=0);
+	Asteroid(uint size_id, const Point& position, const Dist& speed, FLOAT orientation=0, FLOAT rotation=0);
 };
 
 class PlayerShip : public Object
 {
 public:
 	bool shield = false;
-	uint acceleration = 0;	// 0 .. 3
+	FLOAT acceleration = 0;	// 0 .. 3
 	virtual void draw() override;
 	virtual void move() override;
 	PlayerShip();
@@ -77,9 +82,9 @@ public:
 	Dist size;					// offset from start to end of line
 	uint count_down;
 	virtual void draw() override;
-	virtual void move() override;
+	//virtual void move() override;
 	Bullet(){}
-	Bullet(const Point& position, const Dist& direction, FLOAT speed=SPEED);
+	Bullet(const Point& position, const Dist& movement);
 };
 
 
@@ -107,8 +112,9 @@ public:
 	void run_1_frame();
 	void accelerate();
 	void decelerate();
-	void rotate_CW();
-	void rotate_CCW();
+	void rotate_right();
+	void rotate_left();
 	void activate_shield(bool=1);
+	void shoot();
 };
 

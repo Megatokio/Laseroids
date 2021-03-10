@@ -178,6 +178,8 @@ public:
 	static void setScale (FLOAT f);
 	static void setScale (FLOAT fx, FLOAT fy);
 	static void setOffset(FLOAT dx, FLOAT dy);
+	static void setOffset(const Point& p) { setOffset(p.x,p.y); }
+	static void setOffset(const Dist& d)  { setOffset(d.dx,d.dy); }
 	static void setShear (FLOAT sx, FLOAT sy);
 	static void setProjection (FLOAT px, FLOAT py, FLOAT pz=1);
 	static void setScaleAndRotationCW (FLOAT fx, FLOAT fy, FLOAT rad);

@@ -12,3 +12,8 @@
 extern int32 parseInteger(const char* bu, uint& i, int32 min, int32 dflt, int32 max);
 extern FLOAT parseFloat(const char* bu, uint& i, FLOAT min, FLOAT dflt, FLOAT max);
 
+template<typename T, typename U, typename V, typename Z>
+inline Z map_range (T v, U min1, V max1, Z min2, Z max2)
+{
+	return min2 + (max2-min2) * Z(v-min1) / Z(max1-min1);
+}

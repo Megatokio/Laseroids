@@ -11,6 +11,7 @@ add_executable(lasteroids
 	demos.cpp
 	charset1.cpp
 	ssd1306.cpp
+	Laseroids.cpp
 	XY2.cpp
 	main.cpp
 	)

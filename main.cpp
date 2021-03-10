@@ -26,6 +26,8 @@ extern "C" {
 //#include "hardware/divider.h"
 //#include "pico/divider.h"
 #include "hardware/pwm.h"
+#include "Laseroids.h"
+
 
 static SSD1306 oled(128, 64, 0x3C, false);
 
@@ -57,10 +59,6 @@ void oled_quickbrownfox()
 }
 
 
-FLOAT map_range (FLOAT v, FLOAT min1, FLOAT max1, FLOAT min2, FLOAT max2)
-{
-	return min2 + (max2-min2) * (v-min1) / (max1-min1);
-}
 
 static constexpr FLOAT adc_clock_divider = 0xffffu; // FLOAT(0xffffffu)/256;
 static constexpr FLOAT adc_clock = FLOAT(48e6) / adc_clock_divider;
@@ -272,6 +270,9 @@ int main()
 	const FLOAT pi = FLOAT(3.1415926538);
 	LissajousData data(fmin, fmax, steps, rots);
 
+	static Laseroids laseroids;
+	printf("main#%u\n",__LINE__);
+
 	while (1)
 	{
 		//sleep_ms(125);
@@ -333,8 +334,8 @@ int main()
 			case 2:
 			{	FLOAT adc_avg_temperature = FLOAT(adc_temperature_sum) / FLOAT(adc_temperature_count);
 				while(adc_temperature_count) { adc_temperature_count = 0; adc_temperature_sum = 0; }
-				FLOAT voltage = map_range(adc_avg_temperature, 0, 1<<12, 0, FLOAT(3.3));
-				FLOAT temperature = map_range(voltage, 0.706f, 0.706f-0.001721f, 27, 28);
+				FLOAT voltage = map_range(adc_avg_temperature, 0, 1<<12, FLOAT(0), FLOAT(3.3));
+				FLOAT temperature = map_range(voltage, 0.706f, 0.706f-0.001721f, FLOAT(27), FLOAT(28));
 				static constexpr char deg = 0xB0;
 				uint temp = uint(temperature*10);
 				printf("temperature = %u.%u%cC\n", temp/10, temp%10, deg);
@@ -355,32 +356,36 @@ int main()
 			}
 		}
 
+		static int demo = 2;
+		int c = getchar_timeout_us(0);
+		if (c>='1' && c<='6') { demo = c-'0'; XY2::resetTransformation(); }
+
 		xy2.setRotationCW(rad); rad += pi / 180; if (rad>pi) rad -= 2*pi;
 		//xy2.setShear(sx,sy); sx+=dsx; if(sx>=0.5f || sx<=-0.5f) dsx *= -1;
 		//xy2.setProjection(px,py); px+=dpx; if(px>0.00003f || px<-0.00003f) dpx *= -1;
 
-		static int demo = '2';
-		int c = getchar_timeout_us(0);
-		if (c>='1' && c<='5') demo = c;
-
 		switch(demo)
 		{
-		case '1':
+		case 1:
 			drawCheckerBoard(bbox, 4, fast_straight);
 			break;
-		case '2':
+		case 2:
 			drawClock (bbox, uint(second), slow_straight, fast_rounded);
 			break;
-		case '3':
+		case 3:
 			drawLissajous (w,h, data, fast_rounded);
 			break;
-		case '4':
+		case 4:
 			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true);
 			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true);
 			break;
-		case '5':
+		case 5:
 			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true,fast_straight,fast_rounded);
 			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
+			break;
+		case 6:
+			laseroids.run_1_frame();
+			if (laseroids.game_over()) laseroids.init();
 			break;
 		}
 	}

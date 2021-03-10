@@ -406,7 +406,7 @@ void XY2::worker()
 		{
 			FLOAT dx = laser_queue.pop().f;
 			FLOAT dy = laser_queue.pop().f;
-			transformation.setShift(dx,dy);
+			transformation.setTranslation(dx,dy);
 			continue;
 		}
 		case CMD_SET_SHEAR:				// sx, sy
@@ -573,7 +573,7 @@ void __not_in_flash_func(XY2::draw_to) (Point dest, FLOAT speed, uint laser_on_p
 	// thereafter use laser_on_pattern
 	// at end of line wait delay
 
-	dest.transform(transformation);
+	transformation.transform(dest);
 
 	Dist dist = dest - pos0;
 	FLOAT line_length = dist.length();			// SQRT

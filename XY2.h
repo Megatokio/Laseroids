@@ -40,15 +40,9 @@ enum DrawCmd
 	CMD_POLYLINE,   // LaserSet, flags, n, n*Point
 	CMD_PRINT_TEXT,	// 2*LaserSet, Point, 2*FLOAT, n*char, 0
 
-	CMD_SET_ROTATION_CW,		// rad
-	CMD_SET_SCALE,				// fx, fy
-	CMD_SET_OFFSET,				// dx, dy
-	CMD_SET_SHEAR,				// sx, sy
-	CMD_SET_PROJECTION,			// px, py, pz
-	CMD_SET_SCALEandROTATION_CW,// fx, fy, rad
+	CMD_RESET_TRANSFORMATION,	// --
 	CMD_SET_TRANSFORMATION,		// fx fy sx sy dx dy
 	CMD_SET_TRANSFORMATION_3D,	// fx fy sx sy dx dy px py pz
-	CMD_RESET_TRANSFORMATION	// --
 };
 union Data32
 {
@@ -156,7 +150,11 @@ public:
 	static uint heart_beat_state;
 
 	static Point pos0;		// current scanner position (after transformation)
-	static Transformation transformation;
+
+	static Transformation transformation0;			// transformation used by core0 (App)
+	static Transformation transformation1;			// transformation used by core1 (scanner backend)
+	static Transformation transformation_stack[];	// push stack maintained by core0
+	static uint transformation_stack_index;
 
 	XY2(){}
 	static void init();
@@ -174,7 +172,13 @@ public:
 	static void drawPolygon (uint count, const Point points[], const LaserSet&);
 	static void printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool centered = false,
 						   const LaserSet& = slow_straight, const LaserSet& = slow_rounded);
-	static void setRotationCW (FLOAT rad);
+
+	static void resetTransformation();
+	static void pushTransformation();
+	static void popTransformation();
+
+	static void setRotation (FLOAT rad);
+	static void setRotationAndScale (FLOAT rad, FLOAT fx, FLOAT fy);
 	static void setScale (FLOAT f);
 	static void setScale (FLOAT fx, FLOAT fy);
 	static void setOffset(FLOAT dx, FLOAT dy);
@@ -182,16 +186,28 @@ public:
 	static void setOffset(const Dist& d)  { setOffset(d.dx,d.dy); }
 	static void setShear (FLOAT sx, FLOAT sy);
 	static void setProjection (FLOAT px, FLOAT py, FLOAT pz=1);
-	static void setScaleAndRotationCW (FLOAT fx, FLOAT fy, FLOAT rad);
-	static void resetTransformation();
 	static void setTransformation (const Transformation& transformation);
 	static void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy);
 	static void setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy, FLOAT px, FLOAT py, FLOAT pz=1);
+
+	static void rotate (FLOAT rad);
+	static void rotateAndScale (FLOAT rad, FLOAT fx, FLOAT fy);
+	static void scale (FLOAT f);
+	static void scale (FLOAT fx, FLOAT fy);
+	static void addOffset (FLOAT dx, FLOAT dy);
+	static void addOffset (const Point& p) { addOffset(p.x,p.y); }
+	static void addOffset (const Dist& d)  { addOffset(d.dx,d.dy); }
+	static void transform (const Transformation& transformation);
+	static void transform (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy);
+
+
 
 
 private:
 	static void start_core1();	// -> worker()
 	static void worker();		// on core1
+
+	static void update_transformation ();
 
 	static uint pio_avail() { return pio_sm_get_tx_fifo_level(pio,sm_x); }
 	static uint pio_free() { return 8 - pio_sm_get_tx_fifo_level(pio,sm_x);}

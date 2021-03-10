@@ -52,7 +52,11 @@ uint XY2::heart_beat_counter = 1000;
 uint XY2::heart_beat_state   = 0;
 Point XY2::pos0{};
 LaserQueue laser_queue;    // command queue
-Transformation XY2::transformation;
+Transformation XY2::transformation0;		// transformation used by core0
+Transformation XY2::transformation1;		// transformation used by core1
+Transformation XY2::transformation_stack[8];// transformation used by core0 and push stack
+uint XY2::transformation_stack_index = 0;
+static constexpr uint transformation_stack_mask = NELEM(XY2::transformation_stack) - 1;
 
 static bool core1_running = false;
 #define c2c_syncflag 0xf287affe
@@ -198,99 +202,135 @@ void XY2::printText (Point start, FLOAT scale_x, FLOAT scale_y, cstr text, bool 
 	char c; do { laser_queue.push(c = *text++); } while (c);
 }
 
-void XY2::setRotationCW (FLOAT rad)
-{
-	laser_queue.push(CMD_SET_ROTATION_CW);
-	laser_queue.push(rad);
-}
 
-void XY2::setScale (FLOAT f)
+void XY2::update_transformation ()
 {
-	laser_queue.push(CMD_SET_SCALE);
-	laser_queue.push(f);
-	laser_queue.push(f);
-}
-
-void XY2::setScale (FLOAT fx, FLOAT fy)
-{
-	laser_queue.push(CMD_SET_SCALE);
-	laser_queue.push(fx);
-	laser_queue.push(fy);
-}
-
-void XY2::setOffset (FLOAT dx, FLOAT dy)
-{
-	laser_queue.push(CMD_SET_OFFSET);
-	laser_queue.push(dx);
-	laser_queue.push(dy);
-}
-
-void XY2::setShear (FLOAT sx, FLOAT sy)
-{
-	laser_queue.push(CMD_SET_SHEAR);
-	laser_queue.push(sx);
-	laser_queue.push(sy);
-}
-
-void XY2::setProjection (FLOAT px, FLOAT py, FLOAT pz)
-{
-	laser_queue.push(CMD_SET_PROJECTION);
-	laser_queue.push(px);
-	laser_queue.push(py);
-	laser_queue.push(pz);
-}
-
-void XY2::setScaleAndRotationCW (FLOAT fx, FLOAT fy, FLOAT rad)
-{
-	laser_queue.push(CMD_SET_SCALEandROTATION_CW);
-	laser_queue.push(fx);
-	laser_queue.push(fy);
-	laser_queue.push(rad);
+	static_assert (sizeof(Data32)==sizeof(FLOAT), "booboo");
+	laser_queue.push(transformation0.is_projected ? CMD_SET_TRANSFORMATION_3D : CMD_SET_TRANSFORMATION);
+	uint n = transformation0.is_projected ? 9 : 6;
+	while (laser_queue.free() < n) { gpio_put(LED_CORE0_IDLE,1); }
+	gpio_put(LED_CORE0_IDLE,0);
+	Data32* data = reinterpret_cast<Data32*>(&transformation0);
+	laser_queue.write(data,n);
 }
 
 void XY2::resetTransformation()
 {
+	transformation0.reset();
 	laser_queue.push(CMD_RESET_TRANSFORMATION);
+}
+
+void XY2::pushTransformation()
+{
+	transformation_stack[--transformation_stack_index & transformation_stack_mask] = transformation0;
+}
+
+void XY2::popTransformation()
+{
+	transformation0 = transformation_stack[transformation_stack_index++ & transformation_stack_mask];
+	update_transformation();
+}
+
+void XY2::setRotation (FLOAT rad)	// and reset scale and shear
+{
+	transformation0.setRotation(rad);
+	update_transformation();
+}
+
+void XY2::setScale (FLOAT f)
+{
+	transformation0.setScale(f);
+	update_transformation();
+}
+
+void XY2::setScale (FLOAT fx, FLOAT fy)
+{
+	transformation0.setScale(fx,fy);
+	update_transformation();
+}
+
+void XY2::setOffset(FLOAT dx, FLOAT dy)
+{
+	transformation0.setOffset(dx,dy);
+	update_transformation();
+}
+
+void XY2::setShear (FLOAT sx, FLOAT sy)
+{
+	transformation0.setShear(sx,sy);
+	update_transformation();
+}
+
+void XY2::setProjection (FLOAT px, FLOAT py, FLOAT pz)
+{
+	transformation0.setProjection(px,py,pz);
+	update_transformation();
+}
+
+void XY2::setRotationAndScale (FLOAT rad, FLOAT fx, FLOAT fy)
+{
+	transformation0.setRotationAndScale(rad,fx,fy);
+	update_transformation();
+}
+
+void XY2::setTransformation (const Transformation& transformation)
+{
+	transformation0 = transformation;
+	update_transformation();
 }
 
 void XY2::setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy)
 {
-	laser_queue.push(CMD_SET_TRANSFORMATION);
-	laser_queue.push(fx);
-	laser_queue.push(fy);
-	laser_queue.push(sx);
-	laser_queue.push(sy);
-	laser_queue.push(dx);
-	laser_queue.push(dy);
+	new(&transformation0) Transformation(fx,fy,sx,sy,dx,dy);
+	update_transformation();
 }
 
-void XY2::setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy,
-							 FLOAT px, FLOAT py, FLOAT pz)
+void XY2::setTransformation (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy, FLOAT px, FLOAT py, FLOAT pz)
 {
-	laser_queue.push(CMD_SET_TRANSFORMATION_3D);
-	laser_queue.push(fx);
-	laser_queue.push(fy);
-	laser_queue.push(sx);
-	laser_queue.push(sy);
-	laser_queue.push(dx);
-	laser_queue.push(dy);
-	laser_queue.push(px);
-	laser_queue.push(py);
-	laser_queue.push(pz);
+	new(&transformation0) Transformation(fx,fy,sx,sy,dx,dy,px,py,pz);
+	update_transformation();
 }
 
-void XY2::setTransformation (const Transformation& t)
+void XY2::rotate (FLOAT rad)
 {
-	laser_queue.push(CMD_SET_TRANSFORMATION_3D);
-	laser_queue.push(t.fx);
-	laser_queue.push(t.fy);
-	laser_queue.push(t.sx);
-	laser_queue.push(t.sy);
-	laser_queue.push(t.dx);
-	laser_queue.push(t.dy);
-	laser_queue.push(t.px);
-	laser_queue.push(t.py);
-	laser_queue.push(t.pz);
+	transformation0.rotate(rad);
+	update_transformation();
+}
+
+void XY2::rotateAndScale (FLOAT rad, FLOAT fx, FLOAT fy)
+{
+	transformation0.rotateAndScale(rad,fx,fy);
+	update_transformation();
+}
+
+void XY2::scale (FLOAT f)
+{
+	transformation0.scale(f);
+	update_transformation();
+}
+
+void XY2::scale (FLOAT fx, FLOAT fy)
+{
+	transformation0.scale(fx,fy);
+	update_transformation();
+}
+
+void XY2::addOffset(FLOAT dx, FLOAT dy)
+{
+	transformation0.addOffset(dx,dy);
+	update_transformation();
+}
+
+void XY2::transform (const Transformation& transformation)
+{
+	transformation0.addTransformation(transformation);
+	update_transformation();
+}
+
+void XY2::transform (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy)
+{
+	transformation0.addTransformation(fx,fy,sx,sy,dx,dy);
+	update_transformation();
 }
 
 
@@ -389,80 +429,27 @@ void XY2::worker()
 			}
 			continue;
 		}
-		case CMD_SET_ROTATION_CW:		// rad
-		{
-			FLOAT rad = laser_queue.pop().f;
-			transformation.setRotationCW(rad);
-			continue;
-		}
-		case CMD_SET_SCALE:				// fx, fy
-		{
-			FLOAT fx = laser_queue.pop().f;
-			FLOAT fy = laser_queue.pop().f;
-			transformation.setScale(fx,fy);
-			continue;
-		}
-		case CMD_SET_OFFSET:			// dx, dy
-		{
-			FLOAT dx = laser_queue.pop().f;
-			FLOAT dy = laser_queue.pop().f;
-			transformation.setTranslation(dx,dy);
-			continue;
-		}
-		case CMD_SET_SHEAR:				// sx, sy
-		{
-			FLOAT sx = laser_queue.pop().f;
-			FLOAT sy = laser_queue.pop().f;
-			transformation.setShear(sx,sy);
-			continue;
-		}
-		case CMD_SET_PROJECTION:		// px, py, pz
-		{
-			FLOAT px = laser_queue.pop().f;
-			FLOAT py = laser_queue.pop().f;
-			FLOAT pz = laser_queue.pop().f;
-			transformation.setProjection(px,py,pz);
-			continue;
-		}
-		case CMD_SET_SCALEandROTATION_CW:// fx, fy, rad
-		{
-			FLOAT fx = laser_queue.pop().f;
-			FLOAT fy = laser_queue.pop().f;
-			FLOAT rad = laser_queue.pop().f;
-			transformation.setScaleAndRotationCW(fx,fy,rad);
-			continue;
-		}
-		case CMD_SET_TRANSFORMATION:	// fx fy sx sy dx dy
-		{
-			FLOAT fx = laser_queue.pop().f;
-			FLOAT fy = laser_queue.pop().f;
-			FLOAT sx = laser_queue.pop().f;
-			FLOAT sy = laser_queue.pop().f;
-			FLOAT dx = laser_queue.pop().f;
-			FLOAT dy = laser_queue.pop().f;
-			transformation.set(fx,fy,sx,sy,dx,dy);
-			continue;
-		}
-		case CMD_SET_TRANSFORMATION_3D:	// fx fy sx sy dx dy px py pz
-		{
-			FLOAT fx = laser_queue.pop().f;
-			FLOAT fy = laser_queue.pop().f;
-			FLOAT sx = laser_queue.pop().f;
-			FLOAT sy = laser_queue.pop().f;
-			FLOAT dx = laser_queue.pop().f;
-			FLOAT dy = laser_queue.pop().f;
-
-			FLOAT px = laser_queue.pop().f;
-			FLOAT py = laser_queue.pop().f;
-			FLOAT pz = laser_queue.pop().f;
-			transformation.set(fx,fy,sx,sy,dx,dy, px,py,pz);
-			continue;
-		}
 		case CMD_RESET_TRANSFORMATION:	// --
-			{
-				transformation.reset();
-				continue;
-			}
+		{
+			transformation1.reset();
+			continue;
+		}
+		case CMD_SET_TRANSFORMATION:		// fx fy sx sy dx dy
+		{
+			while (laser_queue.avail()<6) {} // __wfi
+			Data32* dest = reinterpret_cast<Data32*>(&transformation1);
+			laser_queue.read(dest,6);
+			transformation1.is_projected = false;
+			continue;
+		}
+		case CMD_SET_TRANSFORMATION_3D:		// fx fy sx sy dx dy px py pz
+		{
+			while (laser_queue.avail()<9) {} // __wfi
+			Data32* dest = reinterpret_cast<Data32*>(&transformation1);
+			laser_queue.read(dest,9);
+			transformation1.is_projected = true;
+			continue;
+		}
 		}
 	}
 }
@@ -573,7 +560,7 @@ void __not_in_flash_func(XY2::draw_to) (Point dest, FLOAT speed, uint laser_on_p
 	// thereafter use laser_on_pattern
 	// at end of line wait delay
 
-	transformation.transform(dest);
+	transformation1.transform(dest);
 
 	Dist dist = dest - pos0;
 	FLOAT line_length = dist.length();			// SQRT

@@ -1,5 +1,4 @@
-#pragma once
-/*	Copyright  (c)	Günter Woigk 2020 - 2020
+/*	Copyright  (c)	Günter Woigk 2020 - 2021
 					mailto:kio@little-bat.de
 
 	This file is free software.
@@ -17,24 +16,22 @@
 	TO THE EXTENT PERMITTED BY APPLICABLE LAW.
 */
 
+#pragma once
 #include "cdefs.h"
-#include <atomic>
+#include <hardware/sync.h>
 
 
-/**
- * Queue to buffer data between two threads (one way).
- * Licensed under the BSD 2-license.
- * Copyright Günter Woigk, 2020.
- *
- * The queue size (element count) must be a power of 2.
- * Reading and writing involves no mutex.
- * There is no synchronization on the sender side and there is no synchronization on the receiver side.
- * If more than 1 thread can read and/or write to the queue,
- * then this template can't be used without further synchronization.
- *
- * @param T    the data type stored in the queue.
- * @param SIZE size of the queue (element count)
- */
+
+//	Queue for sending data from one sender to one concurrently running receiver.
+//
+//	The queue size (element count) must be a power of 2.
+//	Reading and writing involves no mutex.
+//	There is no synchronization on the sender side and there is no synchronization on the receiver side.
+//	If more than 1 thread can read and/or write to the queue, then this template can't be used.
+//
+//	2021-03: reverted to volatile because __atomic_fetch_add_4 is missing. :-/
+//			 using __dmb() (data memory barrier) to ensure that index is written back after data
+
 template<typename T, uint SIZE>
 struct Queue
 {
@@ -43,8 +40,8 @@ struct Queue
 
 protected:
 	T buffer[SIZE];				// write -> wp++ -> read -> rp++
-	std::atomic<uint> rp{0};	// only modified by reader
-	std::atomic<uint> wp{0};	// only modified by writer
+	volatile uint rp = 0;		// only modified by reader
+	volatile uint wp = 0;		// only modified by writer
 
 	static inline void copy (T* z, const T* q, uint n)	// helper: hopefully optimized proper copy
 	{
@@ -59,31 +56,26 @@ public:
 	~Queue() = default;		///< D'tor. Does nothing.
 
 	/**
-	 * Get the number of available elements in the queue.
-	 * @return the number of elements which can be read without blocking.
+	 * Get the number of available elements in the queue which can be read without blocking.
 	 */
 	uint avail() const noexcept { return wp - rp; }
 
 	/**
-	 * Get the number of free slots in the queue.
-	 * @return the number of elements which can be written without blocking.
+	 * Get the number of free elements in the queue which can be written without blocking.
 	 */
 	uint free() const noexcept { return SIZE - avail(); }
 
 	/**
 	 * Read one element.
-	 * The caller must test @ref avail() and wait until one element is available before calling @ref getc().
-	 *
-	 * @return the element.
+	 * There must be at least 1 element @ref avail().
 	 */
-	T getc()        { assert(avail()); uint i=rp; T c = buffer[i&MASK]; std::atomic_thread_fence(std::memory_order_release); rp=i+1; return c; }
+	T getc()        { assert(avail()); uint i=rp; T c = buffer[i++&MASK]; __dmb(); rp=i; return c; }
 
 	/**
 	 * Write one element.
-	 * The caller must test @ref free() and wait until one slot is free before calling @ref putc().
-	 * @param c the element.
+	 * there must be at least 1 element @ref free()
 	 */
-	void putc (T c) { assert(free());  uint i=wp;   buffer[i&MASK] = c; std::atomic_thread_fence(std::memory_order_release); wp=i+1; }
+	void putc (T c) { assert(free()); uint i=wp; buffer[i++&MASK] = c; __dmb(); wp=i; }
 
 	/**
 	 * Read multiple elements.
@@ -94,7 +86,7 @@ public:
 	 * @param n  size (element count) of the buffer.
 	 * @return   number of elements actually read.
 	 */
-	uint read (T* z, uint n) noexcept { n = min(n,avail()); copy_q2b(z,n); std::atomic_thread_fence(std::memory_order_release); rp+=n; return n; }
+	uint read (T* z, uint n) noexcept { n = min(n,avail()); copy_q2b(z,n); __dmb(); rp+=n; return n; }
 
 	/**
 	 * Write multiple elements.
@@ -105,15 +97,16 @@ public:
 	 * @param n  size (element count) of data to write.
 	 * @return   number of elements actually written.
 	 */
-	uint write (const T* q, uint n) noexcept { n = min(n,free());  copy_b2q(q,n); std::atomic_thread_fence(std::memory_order_release); wp+=n; return n; }
+	uint write (const T* q, uint n) noexcept { n = min(n,free()); copy_b2q(q,n); __dmb(); wp+=n; return n; }
 };
 
 
 template<typename T, uint SIZE>
 inline void Queue<T,SIZE>::copy_b2q (const T* q, uint n) noexcept
 {
-	T* z = buffer + (wp & MASK);
-	uint n1 = SIZE - (wp & MASK);
+	uint wp = this->wp & MASK;
+	T* z = buffer + wp;
+	uint n1 = SIZE - wp;
 
 	if (n <= n1)
 	{
@@ -129,8 +122,9 @@ inline void Queue<T,SIZE>::copy_b2q (const T* q, uint n) noexcept
 template<typename T, uint SIZE>
 inline void Queue<T,SIZE>::copy_q2b (T* z, uint n) noexcept
 {
-	const T* q = buffer + (rp & MASK);
-	uint n1 = SIZE - (rp & MASK);
+	uint rp = this->rp & MASK;
+	const T* q = buffer + rp;
+	uint n1 = SIZE - rp;
 
 	if (n <= n1)
 	{

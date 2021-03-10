@@ -11,138 +11,6 @@
 #include "cdefs.h"
 
 
-template<typename T>
-struct TTransformation
-{
-	// A Transformation object contains a 3 x 3 matrix:
-	//
-	//   [ m11 m12 m13 ]
-	//   [ m21 m22 m23 ]
-	//   [ m31 m32 m33 ]
-	//
-	// m31 and m32: horizontal and vertical translation dx, dy.
-	// m11 and m22: horizontal and vertical scaling fx, fy.
-	// m21 and m12: horizontal and vertical shearing sx, sy.
-	// m13 and m23: horizontal and vertical projection px, py,
-	// with m33 as an additional projection factor.
-
-	// The coordinates are transformed using the following formula:
-	//
-	//	x' = fx*x + sx*y + dx		= m11*x + m21*y + dx
-	//	y' = fy*y + sy*x + dy		= m22*y + m12*x + dy
-	//	if (is_projected)
-	//		w' = px*x + py*y + pz	= m13*x + m23*y + m33
-	//		x' /= w'
-	//		y' /= w'
-
-	//FLOAT fx=1, sy=0, px=0;	// m11, m12, m13
-	//FLOAT sx=0, fy=1, py=0;	// m21, m22, m23
-	//FLOAT dx=0, dy=0, pz=1;	// m31, m32, m33
-	FLOAT fx=1, fy=1, sx=0, sy=0, dx=0, dy=0;
-	FLOAT px=0, py=0, pz=1;
-	bool is_projected=false;
-
-	TTransformation()=default;
-	TTransformation(T fx,T fy,T sx,T sy, T dx, T dy) : fx(fx),fy(fy),sx(sx),sy(sy),dx(dx),dy(dy){}
-	TTransformation(T fx,T fy,T sx,T sy, T dx, T dy,T px,T py,T pz=1) :
-		fx(fx),fy(fy),sx(sx),sy(sy),dx(dx),dy(dy),px(px),py(py),pz(pz),is_projected(px||py||pz!=1){}
-
-	void setRotationCW (T rad)	// and reset scale
-	{
-		T sinus = sin(rad);
-		T cosin = cos(rad);
-		fx = cosin; sx = +sinus;
-		fy = cosin; sy = -sinus;
-	}
-
-	void setRotationCCW (T rad)	// and reset scale
-	{
-		T sinus = sin(rad);
-		T cosin = cos(rad);
-		fx = cosin; sx = -sinus;
-		fy = cosin; sy = +sinus;
-	}
-
-	void setScaleAndRotationCW (T scale, T rad)
-	{
-		T sinus = sin(rad) * scale;
-		T cosin = cos(rad) * scale;
-		fx = cosin; sx = +sinus;
-		fy = cosin; sy = -sinus;
-	}
-
-	void setScaleAndRotationCCW (T scale, T rad)
-	{
-		T sinus = sin(rad) * scale;
-		T cosin = cos(rad) * scale;
-		fx = cosin; sx = -sinus;
-		fy = cosin; sy = +sinus;
-	}
-
-	void setScaleAndRotationCW (T x, T y, T rad)
-	{
-		T sinus = sin(rad);
-		T cosin = cos(rad);
-		fx = x*cosin; sx = +x*sinus;
-		fy = y*cosin; sy = -y*sinus;
-	}
-
-	void setScaleAndRotationCCW (T x, T y, T rad)
-	{
-		T sinus = sin(rad);
-		T cosin = cos(rad);
-		fx = x*cosin; sx = -x*sinus;
-		fy = y*cosin; sy = +y*sinus;
-	}
-
-	void setShift (T dx, T dy)
-	{
-		this->dx=dx;
-		this->dy=dy;
-	}
-
-	void setScale (T fx, T fy)	// and adjust shear
-	{
-		if (sx) sx *= fx / this->fx;
-		if (sy) sy *= fy / this->fy;
-		this->fx=fx;
-		this->fy=fy;
-	}
-
-	void setShear (T sx, T sy)
-	{
-		this->sx=sx;
-		this->sy=sy;
-	}
-
-	void setProjection (T px, T py, T pz=1)
-	{
-		this->px=px;
-		this->py=py;
-		this->pz=pz;
-		is_projected = true;
-	}
-
-	void resetProjection ()
-	{
-		px = py = pz = 0;
-		is_projected = false;
-	}
-
-	void reset() { new(this) TTransformation(); }
-
-	void set (T fx, T fy, T sx, T sy, T dx, T dy)
-	{
-		new(this) TTransformation(fx,fy,sx,sy,dx,dy);
-	}
-
-	void set (T fx, T fy, T sx, T sy, T dx, T dy, T px, T py, T pz=1)
-	{
-		new(this) TTransformation(fx,fy,sx,sy,dx,dy,px,py,pz);
-	}
-};
-
-
 /*
  * Template for Data Type to Represent a Distance in 2-dimensional Space.
  */
@@ -284,29 +152,29 @@ struct TPoint
 		return *this;
 	}
 
-	TPoint& transform (const TTransformation<T>& t)
-	{
-		T x = this->x;
-		T y = this->y;
-
-		this->x = t.fx*x + t.sx*y + t.dx;
-		this->y = t.fy*y + t.sy*x + t.dy;
-
-		if (t.is_projected)
-		{
-			T q = t.px*x + t.py*y + t.pz;
-			this->x /= q;
-			this->y /= q;
-		}
-
-		return *this;
-	}
-
-	TPoint transformed (const TTransformation<T>& t) const
-	{
-		TPoint p { t.fx*x + t.sx*y + t.dx, t.fy*y + t.sy*x + t.dy };
-		return t.is_projected ? p / (t.px*x + t.py*y + t.pz) : p;
-	}
+	//TPoint& transform_ (const TTransformation<T>& t)
+	//{
+	//	T x = this->x;
+	//	T y = this->y;
+	//
+	//	this->x = t.fx*x + t.sx*y + t.dx;
+	//	this->y = t.fy*y + t.sy*x + t.dy;
+	//
+	//	if (t.is_projected)
+	//	{
+	//		T q = t.px*x + t.py*y + t.pz;
+	//		this->x /= q;
+	//		this->y /= q;
+	//	}
+	//
+	//	return *this;
+	//}
+	//
+	//TPoint transformed_ (const TTransformation<T>& t) const
+	//{
+	//	TPoint p { t.fx*x + t.sx*y + t.dx, t.fy*y + t.sy*x + t.dy };
+	//	return t.is_projected ? p / (t.px*x + t.py*y + t.pz) : p;
+	//}
 };
 
 
@@ -437,6 +305,377 @@ struct TRect
 	// If the Dist is negative then the Rect will grow.
 	void shrink (T d) noexcept { grow(-d); }
 };
+
+
+template<typename T>
+struct TTransformation
+{
+	// A Transformation object contains a 3 x 3 matrix:
+	//
+	//   [ m11 m12 m13 ]
+	//   [ m21 m22 m23 ]
+	//   [ m31 m32 m33 ]
+	//
+	// m31 and m32: horizontal and vertical translation dx, dy.
+	// m11 and m22: horizontal and vertical scaling fx, fy.
+	// m21 and m12: horizontal and vertical shearing sx, sy.
+	// m13 and m23: horizontal and vertical projection px, py,
+	// with m33 as an additional projection factor.
+
+	// The coordinates are transformed using the following formula:
+	//
+	//	x' = fx*x + sx*y + dx		= m11*x + m21*y + dx
+	//	y' = fy*y + sy*x + dy		= m22*y + m12*x + dy
+	//	if (is_projected)
+	//		w' = px*x + py*y + pz	= m13*x + m23*y + m33
+	//		x' /= w'
+	//		y' /= w'
+
+	//FLOAT fx=1, sy=0, px=0;	// m11, m12, m13
+	//FLOAT sx=0, fy=1, py=0;	// m21, m22, m23
+	//FLOAT dx=0, dy=0, pz=1;	// m31, m32, m33
+	FLOAT fx=1, fy=1, sx=0, sy=0, dx=0, dy=0;
+	FLOAT px=0, py=0, pz=1;
+	bool is_projected=false;
+
+	TTransformation()=default;
+	TTransformation(T fx,T fy,T sx,T sy, T dx, T dy) : fx(fx),fy(fy),sx(sx),sy(sy),dx(dx),dy(dy){}
+	TTransformation(T fx,T fy,T sx,T sy, T dx, T dy,T px,T py,T pz=1) :
+		fx(fx),fy(fy),sx(sx),sy(sy),dx(dx),dy(dy),px(px),py(py),pz(pz),is_projected(px||py||pz!=1){}
+
+	void transform (TPoint<T>& p)
+	{
+		// apply transformation to Point p
+
+		T x = p.x;
+		T y = p.y;
+
+		p.x = fx*x + sx*y + dx;
+		p.y = fy*y + sy*x + dy;
+
+		if (is_projected)
+		{
+			T q = px*x + py*y + pz;
+			p.x /= q;
+			p.y /= q;
+		}
+	}
+
+	TPoint<T> transformed (const TPoint<T>& p) const
+	{
+		// return transformed Point p
+
+		T x = p.x;
+		T y = p.y;
+		TPoint<T> z { fx*x + sx*y + dx, fy*y + sy*x + dy };
+		return is_projected ? z / (px*x + py*y + pz) : z;
+	}
+
+	TTransformation& operator+= (const TTransformation& t)
+	{
+		// a combined transformation is calculated where the supplied transformation t is applied first:
+		// dx12 = dx2 + dx1*fx2 + dy1*sx2    fx12 = fx1*fx2 + sy1*sx2    sx12 = sx1*fx2 + fy1*sx2
+		// dy12 = dy2 + dx1*sy2 + dy1*fy2    sy12 = fx1*sy2 + sy1*fy2    fy12 = sx1*sy2 + fy1*fy2
+
+		const T dx1=t.dx, dy1=t.dy, fx1=t.fx, fy1=t.fy, sx1=t.sx, sy1=t.sy;
+		const T dx2=  dx, dy2=  dy, fx2=  fx, fy2=  fy, sx2=  sx, sy2=  sy;
+
+		const T dx = dx2 + dx1*fx2 + dy1*sx2;
+		const T dy = dy2 + dx1*sy2 + dy1*fy2;
+		const T fx = fx1*fx2 + sy1*sx2;
+		const T sy = fx1*sy2 + sy1*fy2;
+		const T sx = sx1*fx2 + fy1*sx2;
+		const T fy = sx1*sy2 + fy1*fy2;
+
+		new(this) TTransformation(fx,fy,sx,sy,dx,dy);
+		return *this;
+	}
+
+	TTransformation operator+ (const TTransformation& t)
+	{
+		return TTransformation(*this) += t;
+	}
+
+	TTransformation& invert()
+	{
+		//  quot = 1 / (fy*fx - sx*sy)
+		//	dx' = (dy*sx - dx*fy)*quot   fx' =  fy*quot   sx' = -sx*quot
+		//	dy' = (dx*sy - dy*fx)*quot   sy' = -sy*quot   fy' =  fx*quot
+
+		// check: (alt. calc.)
+		// quot = (sy*sx - fx*fy)
+		// dx' = (dx*fy-dy*sx)/quot   fx' = -fy/quot   sx' =  sx/quot
+		// dy' = (dy*fx-dx*sy)/quot   sy' =  sy/quot   fy' = -fx/quot
+
+		const T dx=this->dx, dy=this->dy, fx=this->fx, fy=this->fy, sx=this->sx, sy=this->sy;
+		const T quot = 1 / (fy*fx - sx*sy);
+
+		this->dx = (dy*sx - dx*fy)*quot;
+		this->dy = (dx*sy - dy*fx)*quot;
+		this->fx = fy*quot;
+		this->fy = fx*quot;
+		this->sx = -sx*quot;
+		this->sy = -sy*quot;
+
+		is_projected = false;	// can't handle (yet?)
+		return *this;
+	}
+
+	TTransformation inverted()
+	{
+		return TTransformation(*this).invert();
+	}
+
+
+	void setRotationCW (T rad)	// and reset scale
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		fx = cosin; sx = +sinus;
+		fy = cosin; sy = -sinus;
+	}
+	void setRotationCCW (T rad)	// and reset scale
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		fx = cosin; sx = -sinus;
+		fy = cosin; sy = +sinus;
+	}
+
+
+	TTransformation& rotateCW (T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		const T fx = cosin, sx = +sinus, dx = 0;
+		const T fy = cosin, sy = -sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+	TTransformation& rotateCCW (T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		const T fx = cosin, sx = -sinus, dx = 0;
+		const T fy = cosin, sy = +sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+
+	TTransformation rotatedCW (T rad)
+	{
+		return TTransformation(*this).rotatedCW(rad);
+	}
+	TTransformation rotatedCCW (T rad)
+	{
+		return TTransformation(*this).rotatedCCW(rad);
+	}
+
+	void setScaleAndRotationCW (T scale, T rad)
+	{
+		const T sinus = sin(rad) * scale;
+		const T cosin = cos(rad) * scale;
+		fx = cosin; sx = +sinus;
+		fy = cosin; sy = -sinus;
+	}
+	void setScaleAndRotationCCW (T scale, T rad)
+	{
+		const T sinus = sin(rad) * scale;
+		const T cosin = cos(rad) * scale;
+		fx = cosin; sx = -sinus;
+		fy = cosin; sy = +sinus;
+	}
+
+	void setScaleAndRotationCW (T x, T y, T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		fx = x*cosin; sx = +x*sinus;
+		fy = y*cosin; sy = -y*sinus;
+	}
+	void setScaleAndRotationCCW (T x, T y, T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		fx = x*cosin; sx = -x*sinus;
+		fy = y*cosin; sy = +y*sinus;
+	}
+
+
+	TTransformation& scaleAndRotateCW (T scale, T rad)
+	{
+		const T sinus = sin(rad) * scale;
+		const T cosin = cos(rad) * scale;
+		const T fx = cosin, sx = +sinus, dx = 0;
+		const T fy = cosin, sy = -sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+	TTransformation& scaleAndRotateCCW (T scale, T rad)
+	{
+		const T sinus = sin(rad) * scale;
+		const T cosin = cos(rad) * scale;
+		const T fx = cosin, sx = -sinus, dx = 0;
+		const T fy = cosin, sy = +sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+
+	TTransformation& scaleAndRotateCW (T x, T y, T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		const T fx = x*cosin, sx = +x*sinus, dx = 0;
+		const T fy = y*cosin, sy = -y*sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+	TTransformation& scaleAndRotateCCW (T x, T y, T rad)
+	{
+		const T sinus = sin(rad);
+		const T cosin = cos(rad);
+		const T fx = x*cosin, sx = -x*sinus, dx = 0;
+		const T fy = y*cosin, sy = +y*sinus, dy = 0;
+
+		operator+=(TTransformation(fx,fy,sx,sy,dx,dy));		// TODO: optimize
+		return *this;
+	}
+
+	TTransformation scaledAndRotatedCW (T scale, T rad)
+	{
+		return TTransformation(*this).scaledAndRotatedCW(scale,rad);
+	}
+	TTransformation scaledAndRotatedCCW (T scale, T rad)
+	{
+		return TTransformation(*this).scaledAndRotatedCCW(scale,rad);
+	}
+
+	TTransformation scaledAndRotatedCW (T x, T y, T rad)
+	{
+		return TTransformation(*this).scaledAndRotatedCW(x,y,rad);
+	}
+	TTransformation scaledAndRotatedCCW (T x, T y, T rad)
+	{
+		return TTransformation(*this).scaledAndRotatedCCW(x,y,rad);
+	}
+
+
+
+	TTransformation& setTranslation (T dx, T dy)
+	{
+		this->dx = dx;
+		this->dy = dy;
+		return *this;
+	}
+
+	TTransformation& setTranslation (TDist<T> d)
+	{
+		dx = d.dx;
+		dy = d.dy;
+		return *this;
+	}
+
+	TTransformation& operator+= (const TDist<T>& d)
+	{
+		dx += d.dx;
+		dy += d.dy;
+		return *this;
+	}
+	TTransformation operator+ (const TDist<T>& d)
+	{
+		return TTransformation(*this).operator+=(d);
+	}
+
+	TTransformation& operator-= (const TDist<T>& d)
+	{
+		dx -= d.dx;
+		dy -= d.dy;
+		return *this;
+	}
+	TTransformation operator- (const TDist<T>& d)
+	{
+		return TTransformation(*this).operator-=(d);
+	}
+
+
+
+	TTransformation& setScale (T fx, T fy)	// and adjust shear, keep offset
+	{
+		if (sx) sx *= fx / this->fx;
+		if (sy) sy *= fy / this->fy;
+		this->fx = fx;
+		this->fy = fy;
+		return *this;
+	}
+	TTransformation& scale (T fx, T fy)
+	{
+		if (sx) sx *= fx;
+		if (sy) sy *= fy;
+		this->fx *= fx;
+		this->fy *= fy;
+		return *this;
+	}
+	TTransformation scaled (T fx, T fy)
+	{
+		return TTransformation(*this).scale(fx,fy);
+	}
+
+
+
+	TTransformation& setShear (T sx, T sy)
+	{
+		this->sx = sx;
+		this->sy = sy;
+		return *this;
+	}
+	TTransformation& shear (T sx, T sy)
+	{
+		operator+=(TTransformation(1,1,sx,sy,0,0));	// TODO: optimize
+		return *this;
+	}
+	TTransformation sheared (T sx, T sy)
+	{
+		return TTransformation(*this).shear(sx,sy);
+	}
+
+
+
+	void setProjection (T px, T py, T pz=1)
+	{
+		this->px=px;
+		this->py=py;
+		this->pz=pz;
+		is_projected = true;
+	}
+
+	void resetProjection ()
+	{
+		px = py = pz = 0;
+		is_projected = false;
+	}
+
+	void reset()
+	{
+		new(this) TTransformation();
+	}
+
+	void set (T fx, T fy, T sx, T sy, T dx, T dy)
+	{
+		new(this) TTransformation(fx,fy,sx,sy,dx,dy);
+	}
+
+	void set (T fx, T fy, T sx, T sy, T dx, T dy, T px, T py, T pz=1)
+	{
+		new(this) TTransformation(fx,fy,sx,sy,dx,dy,px,py,pz);
+	}
+
+};
+
 
 
 typedef struct TPoint<FLOAT> Point;

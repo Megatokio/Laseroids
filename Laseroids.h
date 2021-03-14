@@ -7,60 +7,182 @@
 #pragma once
 #include "cdefs.h"
 #include "basic_geometry.h"
+class IObject;
 
 
-class Object
+class DisplayList
 {
 public:
-	Object (){}
-	~Object (){}
-	Object (Transformation&&, const Dist& movement, FLOAT rotation=0);
-	Object (const Transformation&, const Dist& movement, FLOAT rotation=0);
-	Object (const Point& position, FLOAT orientation, FLOAT scale, const Dist& movement, FLOAT rotation);
-	Object (const Point& position) { t.setOffset(position); }
-	Object (FLOAT x, FLOAT y) { t.setOffset(x,y); }
-	virtual void draw() = 0;
-	virtual void move();
-	void wrap();
+	DisplayList() = default;
+	~DisplayList();
 
-	Transformation t;	// -> position, rotation and scale
+	void add(IObject*);
+	void add_left_of  (IObject* o, IObject* new_o);
+	void add_right_of  (IObject* o, IObject* new_o);
+	void add_left_of_iterator (IObject*);
+	void add_right_of_iterator (IObject*);
+	void add_at_iterator (IObject*);
+	void remove(IObject*);
 
-	Point getPosition() { return Point(t.dx,t.dy); }
-	FLOAT getOrientation(){ return Dist(t.fy,t.fx).direction(); }
+	uint sort();
+	bool optimize(uint new_i);
+	void sort4(uint i);
+	void sort3_anf(uint i);
+	void sort3_end(uint i);
 
-	Dist  movement;			// dx,dy
-	FLOAT rotation=0;		// rotational speed
+	IObject* ptr[256];
+	uint count = 0;
+
+	IObject* next()	{ return iter<count ? ptr[iter++] : nullptr; }
+	IObject* prev()	{ return iter > 0 ? ptr[--iter] : nullptr; }
+	IObject* first(){ assert(count); iter_up=true;  iter=0;     return next(); }
+	IObject* last()	{ assert(count); iter_up=false; iter=count; return prev(); }
+
+	uint iter = 0;	// points between items: 0=before first, count=behind last
+	bool iter_up;	// true: iteration was started at first(), else at last()
+
+	void _insert(uint i);
+	void _remove(uint i);
+	uint _find(IObject*);
 };
 
-class Star : public Object
+
+class IObject
 {
 public:
+	IObject()=delete;
+	IObject(cstr _name);
+	virtual ~IObject();
+	IObject(const IObject&) = delete;
+	IObject& operator=(const IObject&) = delete;
+
+	virtual Point origin() = 0;
+	virtual Point first() { return origin(); }	// start of polygon / drawing
+	virtual Point last() { return first(); }	// end of polygon / drawing
+	virtual void draw() = 0;
+	virtual void move() = 0;
+
+	cstr  _name = "IObject";
+};
+
+
+class Star : public IObject
+{
+public:
+	Star(const Point& position);
+	Star();		// star at random position
+
 	virtual void draw() override;
 	virtual void move() override {} // does not move
-	Star();
+	virtual Point origin() override { return position; }
+
+	Point position;
 };
+
+class Score : public IObject
+{
+public:
+	Score(const Point& position);
+	Score();	// score at default position
+
+	virtual void draw() override;
+	virtual void move() override {} // does not move
+	virtual Point origin() override { return position; }
+
+	Point position;
+	uint score = 0;
+};
+
+class Lifes : public IObject
+{
+public:
+	Lifes(const Point& position);
+	Lifes();	// display of lifes left at standard position
+	virtual void draw() override;
+	virtual void move() override {} // does not move
+	virtual Point origin() override { return position; }
+
+	Point position;
+	uint lifes = 4;
+};
+
+
+
+class Object : public IObject
+{
+public:
+	Object (cstr _name) : IObject(_name) {}
+	virtual ~Object () override {}
+	Object (cstr _name, Transformation&&, const Dist& movement);
+	Object (cstr _name, const Transformation&, const Dist& movement);
+
+	Object (cstr _name, const Point& position, FLOAT orientation, FLOAT scale, const Dist& movement);
+	Object (cstr _name, const Point& position) : IObject(_name) { t.setOffset(position); }
+	Object (cstr _name, FLOAT x, FLOAT y) : IObject(_name) { t.setOffset(x,y); }
+
+	virtual void draw() = 0;
+	virtual void move();
+	virtual bool overlap (const Point& pt) { return false; }
+	virtual Point origin() override { return getPosition(); }
+
+	Point getPosition() { return Point(t.dx,t.dy); }
+	Dist getDirection() { return Dist(t.sx,t.fy); }		// Y axis
+	FLOAT getOrientation(){ return getDirection().direction(); }
+
+	void wrap_at_borders();
+	void rotate(FLOAT angle);
+
+	Transformation t;	// -> position, rotation and scale
+	Dist  movement;		// dx,dy
+};
+
+
+class Bullet : public Object
+{
+public:
+	Bullet() = default;
+	Bullet(const Point& position, const Dist& movement);
+
+	virtual void draw() override;
+	virtual void move() override;
+
+	int count_down;
+};
+
 
 class Asteroid : public Object
 {
 public:
+	virtual ~Asteroid() override;
+	Asteroid(uint size_id, const Point& position, const Dist& speed, FLOAT rotation=0);
+
+	virtual void draw() override;
+	virtual void move() override;
+	virtual bool overlap (const Point& pt) override;
+
+	void handle_hit();
+
+	uint  size;				// size class: 1 .. 4
 	Point vertices[16];
 	uint  num_vertices;
-	uint  size;
 	FLOAT radians;
-	virtual void draw() override;
-	//virtual void move() override;
-	Asteroid(){}
-	Asteroid(uint size_id, const Point& position, const Dist& speed, FLOAT orientation=0, FLOAT rotation=0);
+	FLOAT rotation = 0;		// rotational speed
 };
+
 
 class PlayerShip : public Object
 {
 public:
-	bool shield = false;
-	FLOAT acceleration = 0;	// 0 .. 3
+	PlayerShip();			// at (0,0)
+
 	virtual void draw() override;
 	virtual void move() override;
-	PlayerShip();
+
+	bool shield = false;
+	uint accelerating = 0;
+	FLOAT rotation = 0;		// rotational speed
+
+	void accelerate();
 };
 
 class AlienShip : public Object
@@ -69,52 +191,24 @@ public:
 	bool visible = false;
 	virtual void draw() override;
 	virtual void move() override;
-	AlienShip(){printf("%s\n",__func__);}
+	//AlienShip(){printf("%s\n",__func__);}
 	AlienShip(const Point& position);
 };
-
-class Bullet : public Object
-{
-public:
-	static constexpr uint LIFETIME = 20;
-	static constexpr FLOAT LENGTH = 100;
-	static constexpr FLOAT SPEED  = 10000/20;
-	Dist size;					// offset from start to end of line
-	uint count_down;
-	virtual void draw() override;
-	//virtual void move() override;
-	Bullet(){}
-	Bullet(const Point& position, const Dist& movement);
-};
-
 
 class Laseroids
 {
 public:
-	PlayerShip player;
-	AlienShip alien;
-	Asteroid asteroids[20];
-	uint num_asteroids = 0;
-	Bullet bullets[20];
-	uint num_bullets = 0;
-	Star stars[15];
-	uint num_stars = NELEM(stars);
-
-	uint lives = 4;
-	uint score = 0;
 
 	Laseroids();
-	void init() { new(this) Laseroids(); }
-	void draw_all();
-	void move_all();
-	void test_collissions();
-	bool game_over() { return lives == 0; }
-	void run_1_frame();
-	void accelerate();
-	void decelerate();
-	void rotate_right();
-	void rotate_left();
-	void activate_shield(bool=1);
-	void shoot();
+	~Laseroids();
+
+	void startNewGame();
+	void runOneFrame();
+	void accelerateShip();
+	void rotateRight();
+	void rotateLeft();
+	void activateShield(bool=1);
+	void shootCannon();
+	bool isGameOver();
 };
 

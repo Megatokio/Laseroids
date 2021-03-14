@@ -16,6 +16,7 @@
 #include "demos.h"
 extern "C" {
 #include "hardware/rtc.h"
+#include <pico/bootrom.h>
 }
 //#include "pico/util/datetime.h"
 #include "charset1.h"
@@ -245,6 +246,7 @@ int main()
 	{
 		int c = getchar_timeout_us(60*1000*1000);
 		if (c<0 || c==13) break;
+		if (c=='@')	{ reset_usb_boot(25,0); }
 		if ((c==8 || c==127) && i>0) { printf("\x08 \x08"); i--; continue; }
 		if (i<NELEM(charbuffer)-1) { putchar(c); charbuffer[i++] = char(c); }
 	}
@@ -311,7 +313,7 @@ int main()
 	const FLOAT pi = FLOAT(3.1415926538);
 	LissajousData data(fmin, fmax, steps, rots);
 
-	static Laseroids laseroids;
+	Laseroids laseroids;
 	printf("main#%u\n",__LINE__);
 
 	while (1)
@@ -401,34 +403,44 @@ int main()
 		int c = getchar_timeout_us(0);
 		if (c > 0)
 		{
-			if (c>='1' && c<='6')
+			if (c>='1' && c<='7')
 			{
 				demo = c-'0';
 				XY2::resetTransformation();
-				laseroids.lives = 0;		// => reset if Laseroids demo started
+				if (demo==6) { laseroids.startNewGame(); }
+			}
+			else if (c=='?')
+			{
+				printf("1 checkerboard\n");
+				printf("2 clock\n");
+				printf("3 lissajous\n");
+				printf("4,5 title\n");
+				printf("6 Laseroids\n");
+				printf("@ reset as USB stick\n");
+			}
+			else if (c=='@')	// reboot to BOOTSEL mode (USB)
+			{
+				reset_usb_boot(25,0);
 			}
 			else if (demo == 6)	// Laseroids
 			{
-				laseroids.activate_shield(false);
+				while(getchar_timeout_us(0)>=0){}
 				switch(c)
 				{
-				case 'q':
-					laseroids.accelerate();
-					break;
-				case 'a':
-					laseroids.decelerate();
-					break;
 				case 'o':
-					laseroids.rotate_left();
+					laseroids.rotateLeft();
 					break;
 				case 'p':
-					laseroids.rotate_right();
+					laseroids.rotateRight();
+					break;
+				case 'q':
+					laseroids.accelerateShip();
+					break;
+				case 'a':
+					laseroids.shootCannon();
 					break;
 				case ' ':
-					laseroids.shoot();
-					break;
-				case 'y':
-					laseroids.activate_shield(1);
+					laseroids.activateShield(1);
 					break;
 				}
 			}
@@ -458,8 +470,11 @@ int main()
 			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
 			break;
 		case 6:
-			laseroids.run_1_frame();
-			if (laseroids.game_over()) laseroids.init();
+			laseroids.runOneFrame();
+			if (laseroids.isGameOver()) laseroids.startNewGame();
+			break;
+		case 7:
+			test_q3_sqrt();
 			break;
 		}
 	}

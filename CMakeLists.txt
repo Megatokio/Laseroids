@@ -6,7 +6,7 @@ project(XY2Scanner)
 pico_sdk_init()
 
 
-add_executable(lasteroids
+add_executable(Laseroids
 	utilities.cpp
 	demos.cpp
 	charset1.cpp
@@ -16,12 +16,11 @@ add_executable(lasteroids
 	main.cpp
 	)
 
-pico_generate_pio_header(lasteroids ${CMAKE_CURRENT_LIST_DIR}/XY2-100.pio)
+pico_generate_pio_header(Laseroids ${CMAKE_CURRENT_LIST_DIR}/XY2-100.pio)
 
-pico_enable_stdio_usb(lasteroids 1)
-pico_enable_stdio_uart(lasteroids 1)
-target_link_libraries(lasteroids pico_stdlib hardware_rtc pico_multicore hardware_pio hardware_dma)
-target_link_libraries(lasteroids hardware_i2c hardware_adc hardware_irq hardware_pwm)
-pico_add_extra_outputs(lasteroids)
-target_link_libraries(lasteroids pico_stdlib)
+pico_enable_stdio_usb(Laseroids 1)
+pico_enable_stdio_uart(Laseroids 1)
+target_link_libraries(Laseroids pico_stdlib hardware_rtc pico_multicore hardware_pio hardware_dma)
+target_link_libraries(Laseroids hardware_i2c hardware_adc hardware_irq hardware_pwm)
+pico_add_extra_outputs(Laseroids)
 

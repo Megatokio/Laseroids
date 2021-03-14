@@ -119,6 +119,47 @@ void __not_in_flash_func(adc_irq_handler) () noexcept
 }
 
 
+static void test_q3_sqrt()
+{
+	srand(time_us_32());
+	float n[100];
+	float s[100];
+	float t[100];
+	float u[100];
+	float v[100];
+	float w[100];
+
+	for (uint i=0; i<100; i++) { n[i] = rand(75000.0f*75000.0f); }
+
+	uint32 t0 = time_us_32();
+	for (uint i=0; i<100; i++) { s[i] = 1.0f / sqrt(n[i]); }
+	uint32 t1 = time_us_32();
+	for (uint i=0; i<100; i++) { t[i] = q3_reverse_sqrt<0>(n[i]); }
+	uint32 t2 = time_us_32();
+	for (uint i=0; i<100; i++) { u[i] = q3_reverse_sqrt<1>(n[i]); }
+	uint32 t3 = time_us_32();
+	for (uint i=0; i<100; i++) { v[i] = q3_reverse_sqrt<2>(n[i]); }
+	uint32 t4 = time_us_32();
+	for (uint i=0; i<100; i++) { w[i] = q3_reverse_sqrt<3>(n[i]); }
+	uint32 t5 = time_us_32();
+
+	printf("time sqrt=%uus, q3<0>=%uus, q3<1>=%uus, q3<2>=%uus, q3<3>=%uus\n", t1-t0, (t2-t1), (t3-t2), (t4-t3), (t5-t4));
+	printf("time sqrt=%uus, q3<0>=%u%%, q3<1>=%u%%, q3<2>=%u%%, q3<3>=%u%%\n", t1-t0, (t2-t1)*100/(t1-t0), (t3-t2)*100/(t1-t0), (t4-t3)*100/(t1-t0), (t5-t4)*100/(t1-t0));
+
+	printf("deviation:\n");
+	for (uint i=0; i<100; i++)
+	{
+		float d0 = t[i] / s[i] * 100 - 100;
+		float d1 = u[i] / s[i] * 100 - 100;
+		float d2 = v[i] / s[i] * 100 - 100;
+		float d3 = w[i] / s[i] * 100 - 100;
+
+		printf("<0>: %+.6f%%, <1>: %+.6f%%, <2>: %+.6f%%, <3>: %+.6f%%\n",double(d0),double(d1),double(d2),double(d3));
+	}
+	printf("\n");
+}
+
+
 int main()
 {
 	stdio_init_all();

@@ -69,6 +69,15 @@ struct TDist
 		dy = y;
 		return *this;
 	}
+
+	TDist& rotate(T sinus, T cosin)
+	{
+		const T x = cosin * dx - sinus * dy;
+		const T y = cosin * dy + sinus * dx;
+		dx = x;
+		dy = y;
+		return *this;
+	}
 };
 
 
@@ -503,14 +512,20 @@ struct TTransformation
 	}
 	TTransformation& rotate (T rad)
 	{
+		// Add rotation around the input origin
+		// not around the output origin of the Transformation
+		// => dx and dy are preserved and not rotated.
+
 		if (rad != 0)
 		{
 			const T sinus = sin(rad);
 			const T cosin = cos(rad);
-			const T fx = cosin, sx = -sinus;
-			const T fy = cosin, sy = +sinus;
+			const T fx2=fx, fy2=fy, sx2=sx, sy2=sy;
 
-			operator += (TTransformation(fx,fy,sx,sy,0,0));		// TODO: optimize
+			fx = cosin*fx2 + sinus*sx2;
+			sy = cosin*sy2 + sinus*fy2;
+			sx = cosin*sx2 - sinus*fx2;
+			fy = cosin*fy2 - sinus*sy2;
 		}
 		return *this;
 	}

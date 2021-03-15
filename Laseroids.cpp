@@ -68,6 +68,7 @@ static inline FLOAT dist (const Point& a, const Point& b)
 	return max(abs(a.x-b.x),abs(a.y-b.y));
 }
 
+__attribute__((unused))
 static bool sort4_v2 (IObject* ptr[])
 {
 	// try to reorder the 2 middle points of a 4-point path for shortest distance
@@ -90,6 +91,7 @@ static bool sort4_v2 (IObject* ptr[])
 	return f;
 }
 
+__attribute__((unused))
 static bool sort3_anf_v2 (IObject* ptr[])
 {
 	// try to reorder the first and the 2nd point of a 3-point path for shortest distance.
@@ -110,6 +112,7 @@ static bool sort3_anf_v2 (IObject* ptr[])
 	return f;
 }
 
+__attribute__((unused))
 static bool sort3_end_v2 (IObject* ptr[])
 {
 	// try to reorder the last and the previous point of a 3-point path for shortest distance.
@@ -567,7 +570,7 @@ Bullet::Bullet (const Point& p, const Dist& m) :
 void Bullet::draw()
 {
 	XY2::setTransformation(t);
-	XY2::drawLine(Point(0,0),Point(0,FLOAT(0.666)),fast_straight);
+	XY2::drawLine(Point(0,0),Point(0,FLOAT(1.000)),fast_straight);
 }
 
 void Bullet::move()
@@ -575,7 +578,17 @@ void Bullet::move()
 	if (--count_down <= 0) { delete this; return; }
 
 	Object::move();
-	//TODO: hit test
+
+	// hit tests:
+	Point p0{t.dx,t.dy};
+	for (uint i=0; i<display_list.count; i++)	// attn: iterator in use by loop over IObjects!
+	{
+		if (display_list.ptr[i]->hit(p0))
+		{
+			delete this;
+			return;
+		}
+	}
 }
 
 
@@ -632,9 +645,39 @@ bool Asteroid::overlap (const Point& pt)
 	return (pt-Point(t.dx,t.dy)).length() <= radians;
 }
 
-void Asteroid::handle_hit()
+bool Asteroid::hit (const Point& p)
 {
+	// quick test:
+	if (dist(p,origin()) > radians) return false;
 
+	// better test:
+	if ((p-origin()).length() > radians) return false;
+
+	// polygon test:
+	// TODO
+
+	score->score+=10;
+
+	if (size == 1)
+	{
+		delete this;
+		return true;
+	}
+
+	// split into 3 smaller ones
+	Dist dist0{0.0f, radians * 0.666f};		// offset to new asteroid's center
+	for (int i=0; i<=2; i++)
+	{
+		dist0.rotate(i ? pi*2/3 : rand(pi/3));
+		FLOAT rot0 = rotation * rand(0.666f,1.5f);
+		Dist speed0 = movement + dist0/size;
+		Point p0 = p + dist0;
+		//display_list.add_right_of(this, new Asteroid(size-1,p0,speed0,rot0));
+		display_list.add(new Asteroid(size-1,p0,speed0,rot0));
+	}
+
+	delete this;
+	return true;
 }
 
 
@@ -709,16 +752,35 @@ void PlayerShip::move()
 	// TODO: collission / hit test
 }
 
+bool PlayerShip::hit (const Point&)
+{
+	// TODO
+	return false;
+}
 
 // =====================================================================
 //							ALIEN SHIP
 // =====================================================================
 
-void AlienShip::draw(){}
-void AlienShip::move(){}
+void AlienShip::draw()
+{
+	// TODO
+}
+
+void AlienShip::move()
+{
+	// TODO
+}
+
+bool AlienShip::hit (const Point&)
+{
+	// TODO
+	return false;
+}
+
 AlienShip::AlienShip(const Point& _position) : Object("AlienShip", _position)
 {
-	printf("%s\n",__func__);
+	// TODO
 }
 
 

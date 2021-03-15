@@ -61,6 +61,7 @@ public:
 	virtual Point last() { return first(); }	// end of polygon / drawing
 	virtual void draw() = 0;
 	virtual void move() = 0;
+	virtual bool hit (const Point& p) { return false; }
 
 	cstr  _name = "IObject";
 };
@@ -159,8 +160,7 @@ public:
 	virtual void draw() override;
 	virtual void move() override;
 	virtual bool overlap (const Point& pt) override;
-
-	void handle_hit();
+	virtual bool hit (const Point& p) override;
 
 	uint  size;				// size class: 1 .. 4
 	Point vertices[16];
@@ -177,6 +177,7 @@ public:
 
 	virtual void draw() override;
 	virtual void move() override;
+	virtual bool hit (const Point& p) override;
 
 	bool shield = false;
 	uint accelerating = 0;
@@ -191,6 +192,7 @@ public:
 	bool visible = false;
 	virtual void draw() override;
 	virtual void move() override;
+	virtual bool hit (const Point& p) override;
 	//AlienShip(){printf("%s\n",__func__);}
 	AlienShip(const Point& position);
 };

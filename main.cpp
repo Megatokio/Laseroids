@@ -19,8 +19,6 @@ extern "C" {
 #include <pico/bootrom.h>
 }
 //#include "pico/util/datetime.h"
-#include "charset1.h"
-#include "ssd1306.h"
 #include "hardware/adc.h"
 #include "hardware/irq.h"
 #include "hardware/regs/intctrl.h"		// Scheiß Suchspiel
@@ -28,36 +26,7 @@ extern "C" {
 //#include "pico/divider.h"
 #include "hardware/pwm.h"
 #include "Laseroids.h"
-
-
-static SSD1306 oled(128, 64, 0x3C, false);
-
-void oled_chartest()
-{
-	char c[50];
-	for (uint8 dz = 0; dz<255; dz++)
-	{
-		oled.setCursor(0,0);
-		sprintf(c, "Char #%d: %c", dz,dz);
-		oled.print(c);
-		oled.display();
-		sleep_ms(250);
-	}
-	oled.clearDisplay();
-}
-
-void oled_quickbrownfox()
-{
-	cstr text1 = "a quick brown fox jumped over the lazy dogs.";
-	cstr text2 = "1234567890ß!\"§$%%&/()=?\\.";
-	cstr text3 = "<>@,.-;:_öäÖÄüÜ#'+*~`^°";
-	oled.setCursor(0,0);
-	oled.print(text1);
-	oled.setCursor(0,8);
-	oled.print(text2);
-	oled.setCursor(0,16);
-	oled.print(text3);
-}
+#include "OledDisplay.h"
 
 
 
@@ -125,16 +94,8 @@ int main()
 	stdio_init_all();
 	gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN,0);
 
-	printf("charset1_init\n");
-	charset1_init();
-	printf("oled.init_i2c\n");
-	oled.init_i2c(I2C_OLED, I2C_OLED_PIN_SDA, I2C_OLED_PIN_SCK);
-	printf("oled.init_display\n");
-	oled.init_display();
-	printf("oled_chartest\n");
-	//oled_chartest();
-	oled_quickbrownfox();
-
+	printf("init OLED display\n");
+	oled.init();
 
 
 	printf("init ADC\n");

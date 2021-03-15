@@ -12,16 +12,6 @@
 #include "ssd1306.h"
 #include <stdio.h>
 
-SSD1306::SSD1306()
-{
-	_width = 128;
-	_height = 32;
-	_pages = _height / 8;
-	_i2cAddr = 0x3C;
-	_external_vcc = false;
-	_i=0;
-	_extfont = false;
-}
 
 SSD1306::SSD1306(uint8_t w, uint8_t h, uint8_t addr, bool extfont = false)
 {

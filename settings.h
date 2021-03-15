@@ -73,6 +73,13 @@ constexpr uint LASER_JUMP_DELAY = 6;	// after jump
 #define ADC_TEMPERATURE 4
 
 // OLED settings
-#define I2C_OLED_PIN_SDA  2
-#define I2C_OLED_PIN_SCK  3
-#define I2C_OLED i2c1
+extern class OledDisplay oled;
+#define OLED_I2C_ADDR	  0x3C
+#define OLED_I2C_PIN_SDA  2
+#define OLED_I2C_PIN_SCK  3
+#define OLED_I2C_PORT     i2c1
+#define OLED_WIDTH		  128
+#define OLED_HEIGHT		  64
+#define OLED_EXTERNAL_VCC false
+
+

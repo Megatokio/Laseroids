@@ -13,6 +13,7 @@
 #include "hardware/i2c.h"
 #include "font.h"
 #include "font2.h"
+#include "settings.h"
 
 #define SET_CONTRAST 0x81
 #define SET_ENTIRE_ON 0xA4
@@ -84,7 +85,7 @@ typedef uint8_t u8;
 class SSD1306
 {
 public:
-	SSD1306();
+	SSD1306() = default;
 	SSD1306(u8 w, u8 h, u8 addr, bool extfont);
 	void writeln(char* v);
 	void print(const char* v);
@@ -110,20 +111,25 @@ public:
 	void setCursor(u8 x, u8 y);
 	u8 get_height();
 	u8 get_width();
+
 private:
-	u8 _width;
-	u8 _height;
-	u8 _pages;
-	u8 _cursorx;
-	u8 _cursory;
-	i2c_inst* _port;
-	u8 _sda_pin;
-	u8 _scl_pin;
-	u8 _i2cAddr;
-	int _i;
-	bool _external_vcc;
-	bool _extfont;
-	u8 i2caddr, vccstate, page_end;
+	i2c_inst* _port = OLED_I2C_PORT;
+	u8 _sda_pin		= OLED_I2C_PIN_SDA;
+	u8 _scl_pin		= OLED_I2C_PIN_SCK;
+	u8 _i2cAddr		= OLED_I2C_ADDR;
+
+	u8 _width	= OLED_WIDTH;
+	u8 _height	= OLED_HEIGHT;
+	u8 _pages	= OLED_HEIGHT/8;
+	bool _external_vcc = OLED_EXTERNAL_VCC;
+	bool _extfont = false;
+
+	u8 _cursorx = 0;
+	u8 _cursory = 0;
+	int _i = 0;
+	u8 vccstate = 0;
+	u8 page_end = 0;
+
 	u8 buffer[1025];
 };
 #endif

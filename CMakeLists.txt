@@ -12,6 +12,7 @@ add_executable(Laseroids
 	charset1.cpp
 	ssd1306.cpp
 	OledDisplay.cpp
+	AdcLoadSensor.cpp
 	Laseroids.cpp
 	XY2.cpp
 	main.cpp

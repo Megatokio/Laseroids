@@ -19,74 +19,12 @@ extern "C" {
 #include <pico/bootrom.h>
 }
 //#include "pico/util/datetime.h"
-#include "hardware/adc.h"
-#include "hardware/irq.h"
-#include "hardware/regs/intctrl.h"		// Scheiß Suchspiel
 //#include "hardware/divider.h"
 //#include "pico/divider.h"
 #include "hardware/pwm.h"
 #include "Laseroids.h"
 #include "OledDisplay.h"
-
-
-
-static constexpr FLOAT adc_clock_divider = 0xffffu; // FLOAT(0xffffffu)/256;
-static constexpr FLOAT adc_clock = FLOAT(48e6) / adc_clock_divider;
-
-static volatile uint  adc_current_channel = 4; // ADC_TEMPERATURE;	// startup with temperature
-static volatile uint  adc_errors = 0;
-
-static volatile uint   adc_core0_count = 0;
-static volatile uint   adc_core0_min = 1<<12;
-static volatile uint   adc_core0_max = 0;
-static volatile uint32 adc_core0_sum = 0;
-static volatile uint   adc_core1_count = 0;
-static volatile uint   adc_core1_min = 1<<12;
-static volatile uint   adc_core1_max = 0;
-static volatile uint32 adc_core1_sum = 0;
-static volatile uint   adc_temperature_count = 0;
-static volatile uint32 adc_temperature_sum = 0; // (1<<12) * 0.7f/3.3f;	// something around 27°C
-
-static_assert (ADC_CORE0_IDLE == 0, "");
-static_assert (ADC_CORE1_IDLE == 1, "");
-static_assert (ADC_TEMPERATURE == 4, "");
-
-void __not_in_flash_func(adc_irq_handler) () noexcept
-//void adc_irq_handler () noexcept
-{
-	while (!adc_fifo_is_empty())
-	{
-		uint value = adc_fifo_get();
-		bool error = value & 1<<12;
-
-		if (error)
-		{
-			adc_errors++;
-		}
-		else switch (adc_current_channel)
-		{
-		case 0:
-			adc_core0_count++;
-			adc_core0_sum += value;
-			adc_core0_min = min(adc_core0_min,value);
-			adc_core0_max = max(adc_core0_max,value);
-			break;
-		case 1:
-			adc_core1_count++;
-			adc_core1_sum += value;
-			adc_core1_min = min(adc_core1_min,value);
-			adc_core1_max = max(adc_core1_max,value);
-			break;
-		default:
-			adc_temperature_count++;
-			adc_temperature_sum += value;
-			break;
-		}
-
-		static uint8 nxch[] = {1,4,0,0,0};
-		adc_current_channel = nxch[adc_current_channel];
-	}
-}
+#include "AdcLoadSensor.h"
 
 
 int main()
@@ -97,45 +35,8 @@ int main()
 	printf("init OLED display\n");
 	oled.init();
 
-
 	printf("init ADC\n");
-	printf("sample frequency = %u Hz (all channels)\n", uint(adc_clock+FLOAT(0.5)));
-	adc_init();
-	if (0)	// if adc can be restarted
-	{
-		//adc_core0_min_load = ;
-		//adc_core0_max_load = ;
-		//adc_core0_avg_load = ;
-		//adc_core1_min_load = ;
-		//adc_core1_max_load = ;
-		//adc_core1_avg_load = ;
-		//adc_avg_temperature = ;
-		adc_current_channel = ADC_TEMPERATURE;	// startup with temperature
-		adc_errors = 0;
-	}
-
-	adc_set_temp_sensor_enabled(true);	// apply power
-	adc_gpio_init(PIN_ADC_CORE0_IDLE);
-	adc_gpio_init(PIN_ADC_CORE1_IDLE);
-	adc_select_input(ADC_TEMPERATURE);	// start with measurement for temperature before round robbin
-	adc_set_round_robin((1<<ADC_CORE0_IDLE)+(1<<ADC_CORE1_IDLE)+(1<<ADC_TEMPERATURE));
-	adc_fifo_setup (true/*enable*/, true/*dreq_en*/, 1/*dreq_thresh*/, true/*err_in_fifo*/, false/*!byte_shift*/);
-	irq_set_exclusive_handler (ADC_IRQ_FIFO, adc_irq_handler);
-	adc_irq_set_enabled(true);
-	irq_set_enabled(ADC_IRQ_FIFO,true);
-	adc_set_clkdiv(adc_clock_divider);	// slowest possible: 832 measurements / sec
-	adc_run(true);
-
-	printf("start ADC\n");
-	while (adc_temperature_count == 0)
-	{
-		if (!adc_fifo_is_empty())
-		{
-			printf("ADC interrupt failed to start\n");
-			//for(;;);
-		}
-	}
-	printf("...ok\n");
+	load_sensor.init();
 
 
 	// count overruns
@@ -252,68 +153,41 @@ int main()
 		{
 			adc_last_second = second;
 
+			#define L load_sensor
+			FLOAT min,avg,max;
+			static constexpr FLOAT r=0.5;
+
 			if (uint16 d = uint16(pwm_get_counter(slice_num) - overruns))
 			{
 				printf("***OVERRUN***: %u frames\n", d);
 				overruns += d;
 			}
-			else
-			if (adc_errors)
+			else if (L.adc_errors)
 			{
-				printf("");
-				adc_errors = 0;
+				printf("ADC conversion error\n");
+				L.adc_errors = 0;
 			}
 			else
 			switch(id++)
 			{
 			case 0:
-			{	FLOAT adc_core0_avg = FLOAT(adc_core0_sum)/FLOAT(adc_core0_count);
-				while(adc_core0_count) { adc_core0_count = 0; adc_core0_sum = 0; }
+			{
+				load_sensor.getCore0Load(min,avg,max);
 				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
-					   int(map_range(FLOAT(adc_core0_max), 0,1<<12, 100,0)),
-					   int(map_range(adc_core0_avg, 0,1<<12, 100,0)),
-					   int(map_range(FLOAT(adc_core0_min), 0,1<<12, 100,0)));
-				//printf("load core0 = %4.1fV %4.1fV %4.1fV (min,avg,max)\n",
-				//	   double(map_range(FLOAT(adc_core0_max), 0,1<<12, 0,3.3f)),
-				//	   double(map_range(adc_core0_avg, 0,1<<12, 0,3.3f)),
-				//	   double(map_range(FLOAT(adc_core0_min), 0,1<<12, 0,3.3f)));
-				adc_core0_max = 0;
-				adc_core0_min = 1<<12;
+					   int(min+r), int(avg+r), int(max+r));
 			}	break;
 			case 1:
-			{	FLOAT adc_core1_avg = FLOAT(adc_core1_sum)/FLOAT(adc_core1_count);
-				while(adc_core1_count) { adc_core1_count = 0; adc_core1_sum = 0; }
-				printf("load core1 = %i%% %i%% %i%% (min,avg,max)\n",
-					   int(map_range(FLOAT(adc_core1_max), 0,1<<12, 100,0)),
-					   int(map_range(adc_core1_avg, 0,1<<12, 100,0)),
-					   int(map_range(FLOAT(adc_core1_min), 0,1<<12, 100,0)));
-				//printf("load core1 = %4.1fV %4.1fV %4.1fV (min,avg,max)\n",
-				//	   double(map_range(FLOAT(adc_core1_max), 0,1<<12, 0,3.3f)),
-				//	   double(map_range(adc_core1_avg, 0,1<<12, 0,3.3f)),
-				//	   double(map_range(FLOAT(adc_core1_min), 0,1<<12, 0,3.3f)));
-				adc_core1_max = 0;
-				adc_core1_min = 1<<12;
+			{
+				load_sensor.getCore1Load(min,avg,max);
+				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
+					   int(min+r), int(avg+r), int(max+r));
 			}	break;
 			case 2:
-			{	FLOAT adc_avg_temperature = FLOAT(adc_temperature_sum) / FLOAT(adc_temperature_count);
-				while(adc_temperature_count) { adc_temperature_count = 0; adc_temperature_sum = 0; }
-				FLOAT voltage = map_range(adc_avg_temperature, 0, 1<<12, FLOAT(0), FLOAT(3.3));
-				FLOAT temperature = map_range(voltage, 0.706f, 0.706f-0.001721f, FLOAT(27), FLOAT(28));
-				static constexpr char deg = 0xB0;
-				uint temp = uint(temperature*10);
-				printf("temperature = %u.%u%cC\n", temp/10, temp%10, deg);
-				//printf("temperature = %.1f%cC\n", temperature, deg);
-				//uint32 temp_frac,temp = divmod_u32u32_rem(uint(temperature),10,&temp_frac);
-				//printf("temperature = %u.%u%cC\n", temp, temp_frac, deg);
-				//printf("temperature = %.1f%cC\n", double(temperature), deg);
-				//divmod_result_t temp = hw_divider_divmod_u32(uint(temperature*10), 10);
-				//printf("temperature = %u.%u%cC\n", to_quotient_u32(temp),to_remainder_u32(temp), deg);
-
+			{
+				FLOAT temperature = load_sensor.getTemperature();
+				printf("temperature = %.1f°C\n", double(temperature));
 			}	break;
 			default:
-				//static constexpr uint num_cases = 4;
-				//printf("adc conversions: %u/sec\n",adc_count / num_cases);
-				//adc_count = 0;
 				id=0;
 				break;
 			}

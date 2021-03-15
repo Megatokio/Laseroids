@@ -66,8 +66,9 @@ constexpr uint LASER_JUMP_DELAY = 6;	// after jump
 
 
 // ADC settings
-#define PIN_ADC_CORE0_IDLE 26
-#define PIN_ADC_CORE1_IDLE 27
+extern class AdcLoadSensor load_sensor;
+#define ADC_PIN_CORE0_IDLE 26
+#define ADC_PIN_CORE1_IDLE 27
 #define ADC_CORE0_IDLE  0
 #define ADC_CORE1_IDLE  1
 #define ADC_TEMPERATURE 4

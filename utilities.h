@@ -21,42 +21,6 @@ inline Z map_range (T v, U min1, V max1, Z min2, Z max2)
 	return min2 + (max2-min2) * Z(v-min1) / Z(max1-min1);
 }
 
-template<uint iter=0>
-inline float q3_reverse_sqrt (float x)
-{
-	// the Quake III algorithm for 1/sqrt(x)
-	// finds the first approximation for sqrt(x)
-	// by simply shifting the exponent of the float right by 1
-	// and the 1/sqrt(x) by taking it's negative.
-
-	// it only works on processors which do the INTs and the FLOATs like Intel:
-	// little endian, use complements for negative INTs and IEEE754 4-byte floats.
-
-	// Speed test on Raspberry Pico, compared to built-in 1.0f/sqrt(x):
-	// 0 Iter:   6% execution time, accuracy ~3%
-	// 1 Iter: 256% execution time, accuracy ~0.15%
-	// 2 Iter: 476% execution time, accuracy ~0.0005%
-	// 3 Iter: 676% execution time, accuracy ~0.000015%
-	// -->
-	// no need to use this except for a very fast first estimation!
-
-	using iptr = int*;
-	using fptr = float*;
-
-	float x2 = x * 0.5f;		// x/2 needed for Newton's
-	float y = x;				// y for the result
-
-	int32 i;
-	i = *iptr(&y);				// approximating:
-	i = 0x5f3759df - (i>>1);	// log(1/sqrt(x)) = -1/2*log(x)
-	y = *fptr(&i);				// 0x5f3759df mostly corrects offsets
-
-	for (uint i=0; i<iter; i++)
-		y *= 1.5f - x2*y*y;		// Newton's Iteration
-
-	return y;
-}
-
 
 inline uint rand (uint max)	// --> [0 .. max]
 {

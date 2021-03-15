@@ -28,7 +28,7 @@ static constexpr FLOAT MAXPOS = +0x7fff;
 static constexpr FLOAT MINPOS = -0x8000;
 
 static constexpr uint NUM_ASTEROIDS = 3;
-static constexpr uint NUM_STARS = 15;
+static constexpr uint NUM_STARS = 7;
 static constexpr uint NUM_LIFES = 4;		// incl. the currently active one
 
 static constexpr uint  BULLET_LIFETIME = 30;
@@ -55,358 +55,178 @@ static uint num_asteroids = 0;
 
 DisplayList::~DisplayList()
 {
-	for (uint i=0; i<count; i++) { delete ptr[i]; }
-	iter = count = 0; // safety
+	while (root) { delete root; }
 }
 
-static inline FLOAT dist (const Point& a, const Point& b)
+static inline FLOAT dist (const Point& p1, const Point& p2)
 {
 	// calculate kind-of-distance quick
-	// it's even better for jumping if speed of X and Y axis unit are calculated separately!
 
-	//return (a-b).length();
-	return max(abs(a.x-b.x),abs(a.y-b.y));
+	FLOAT a = abs(p1.x-p2.x);
+	FLOAT b = abs(p1.y-p2.y);
+	return a>b ? a+b/2 : a/2+b;
+}
+static inline FLOAT dist (const IObject& o1, const IObject& o2)
+{
+	return dist(o1.last(),o2.first());
+}
+static inline FLOAT dist (const IObject* o1, const IObject* o2)
+{
+	return dist(o1->last(),o2->first());
 }
 
-__attribute__((unused))
-static bool sort4_v2 (IObject* ptr[])
+IObject* DisplayList::_best_insertion_point (IObject* new_o)
 {
-	// try to reorder the 2 middle points of a 4-point path for shortest distance
-	// this version uses a 'first' and a 'last' point of objects.
-	// optimization will be better than first-point-only or middle-point-only
-	// but calculation of 2 points will take longer, middle point would be fastest
+	IObject* o = root;
+	FLOAT o_dist = FLOAT(1e30);
+	IObject* i = root;
 
-	Point e0 = ptr[0]->last();
-	Point a1 = ptr[1]->first();
-	Point e1 = ptr[1]->last();
-	Point a2 = ptr[2]->first();
-	Point e2 = ptr[2]->last();
-	Point a3 = ptr[3]->first();
-
-	FLOAT d1 = dist(e0,a1)+dist(e1,a2)+dist(e2,a3);
-	FLOAT d2 = dist(e0,a2)+dist(e2,a1)+dist(e1,a3);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[1], ptr[2]);
-	return f;
-}
-
-__attribute__((unused))
-static bool sort3_anf_v2 (IObject* ptr[])
-{
-	// try to reorder the first and the 2nd point of a 3-point path for shortest distance.
-	// this assumes / is for the start of drawing the whole frame.
-	// this version uses a 'first' and a 'last' point of objects.
-
-	Point a0 = ptr[0]->first();
-	Point e0 = ptr[0]->last();
-	Point a1 = ptr[1]->first();
-	Point e1 = ptr[1]->last();
-	Point a2 = ptr[2]->first();
-
-	FLOAT d1 = dist(e0,a1)+dist(e1,a2);
-	FLOAT d2 = dist(e1,a0)+dist(e0,a2);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[0], ptr[1]);
-	return f;
-}
-
-__attribute__((unused))
-static bool sort3_end_v2 (IObject* ptr[])
-{
-	// try to reorder the last and the previous point of a 3-point path for shortest distance.
-	// this assumes / is for the end of drawing the whole frame.
-	// this version uses a 'first' and a 'last' point of objects.
-
-	Point e0 = ptr[0]->last();
-	Point a1 = ptr[1]->first();
-	Point e1 = ptr[1]->last();
-	Point a2 = ptr[2]->first();
-	Point e2 = ptr[2]->last();
-
-	FLOAT d1 = dist(e0,a1)+dist(e1,a2);
-	FLOAT d2 = dist(e0,a2)+dist(e2,a1);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[1], ptr[2]);
-	return f;
-}
-
-static bool sort4_v1 (IObject* ptr[])
-{
-	// try to reorder the 2 middle points of a 4-point path for shortest distance
-	// this version uses a single point of each object.
-	// faster but not as good as optimization with 'start' and 'end'
-
-	Point a0 = ptr[0]->origin();
-	Point a1 = ptr[1]->origin();
-	Point a2 = ptr[2]->origin();
-	Point a3 = ptr[3]->origin();
-
-	FLOAT d1 = dist(a0,a1) /* +dist(a1,a2) */ +dist(a2,a3);
-	FLOAT d2 = dist(a0,a2) /* +dist(a2,a1) */ +dist(a1,a3);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[1], ptr[2]);
-	return f;
-}
-
-static bool sort3_anf_v1 (IObject* ptr[])
-{
-	// try to reorder the 2 middle points of a 4-point path for shortest distance
-	// this version uses a single point of each object.
-	// faster but not as good as optimization with 'start' and 'end'
-
-	Point a0 = ptr[0]->origin();
-	Point a1 = ptr[1]->origin();
-	Point a2 = ptr[2]->origin();
-
-	FLOAT d1 = dist(a0,a1)+dist(a1,a2);
-	FLOAT d2 = dist(a1,a0)+dist(a0,a2);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[0], ptr[1]);
-	return f;
-}
-
-static bool sort3_end_v1 (IObject* ptr[])
-{
-	// try to reorder the 2 middle points of a 4-point path for shortest distance
-	// this version uses a single point of each object.
-	// faster but not as good as optimization with 'start' and 'end'
-
-	Point a0 = ptr[0]->origin();
-	Point a1 = ptr[1]->origin();
-	Point a2 = ptr[2]->origin();
-
-	FLOAT d1 = dist(a0,a1)+dist(a1,a2);
-	FLOAT d2 = dist(a0,a2)+dist(a2,a1);
-
-	bool f = d2 < d1;
-	if (f) std::swap(ptr[1], ptr[2]);
-	return f;
-}
-
-#define sort4 sort4_v1
-#define sort3_anf sort3_anf_v1
-#define sort3_end sort3_end_v1
-
-void DisplayList::_insert (uint i)
-{
-	memmove(ptr+i+1, ptr+i, (count-i)*sizeof(IObject*));
-	count++;
-}
-
-void DisplayList::_remove (uint i)
-{
-	count--;
-	memmove(ptr+i, ptr+i+1, (count-i)*sizeof(IObject*));
-}
-
-uint DisplayList::_find(IObject* o)
-{
-	// search for object
-	// optimized for current object of iteration:
-
-	if (iter_up)
+	do
 	{
-a:		for (uint i=iter; i>0; )
+		FLOAT i_dist = dist(i,new_o) + dist(new_o,i->_next) - dist(i,i->_next);
+		if (i_dist < o_dist)
 		{
-			if (ptr[--i] == o) return i;
+			o = i;
+			o_dist = i_dist;
 		}
-		if (iter_up) goto b;
 	}
-	else
-	{
-b:		for (uint i=iter; i<count; i++)
-		{
-			if (ptr[i] == o) return i;
-		}
-		if (!iter_up) goto a;
-	}
-	return ~0u;
+	while ((i=i->_next) != root);
+
+	return o;	// best position is between o and o->_next
 }
 
 void DisplayList::remove (IObject* o)
 {
-	uint i = _find(o);
-	if (i == ~0u) return; // not found
-	if (iter > i) iter--;
-	_remove(i);
+	if (o == root)
+	{
+		root = o->_next;
+
+		if (root == o)
+		{
+			root = iter = nullptr;
+			return;
+		}
+	}
+
+	if (o == iter)
+	{
+		iter = iter->_prev;
+	}
+
+	o->_unlink();
 }
 
 void DisplayList::add (IObject* o)
 {
-	// add object to pre-sorted display list.
-	// objects are initially sorted in ascending order of X coordinate
-	// and pair-by-pair opimized gradually, so that sorting by X is no longer stricktly true.
-	// new points are added before the first point which has a higher X coordinate
+	// add object to display list.
+	// use for initial objects at game start or objects popping up at random positions.
 
-	// add() should not be called from within an iteration.
-	// if the new object is to be inserted at the position of the iterator,
-	// then it is undefined on which side of the iterator it is added.
+	// add() should not be called from within an iteration because
+	// it is unpredictable on which side of the iterator it is added.
 
-	// add() is intended to add initial objects at game start
-	// or random objects, e.g. the alien ship, outside of an iteration.
-
-	if (count == NELEM(ptr)) { printf("sorted_objects: overflow!\n"); return; }
-	if (count==0)
+	if (root == nullptr)
 	{
-		ptr[count++] = o;
+		root = o->_prev = o->_next = o;
 		return;
 	}
 
-	Point p0 = o->origin();
-
-	//IObject* oo;
-	//for (oo = last(); oo && oo->origin().x > p0.x; oo = prev()) {}
-	//if (oo) add_right_of(oo,o);
-	//else add_at_iterator(o);
-
-	uint i = count++;
-
-	while (i > 0 && p0.x < ptr[i-1]->origin().x)
+	if (root->_next == root)
 	{
-		ptr[i] = ptr[i-1];
-		i--;
+		o->_link_behind(root);
+		return;
 	}
 
-	ptr[i] = o;
-
-	if (iter > i) iter++;
+	o->_link_behind(_best_insertion_point(o));
 }
 
 void DisplayList::add_left_of_iterator (IObject* o)
 {
-	// insert object below iterator
+	// insert object before iterator
 	// if iterating up then this object will not be returned by this iteration
 	// if iterating down then this object will be returned next by this iteration
 
-	if (count == NELEM(ptr)) { printf("sorted_objects: overflow!\n"); return; }
-
-	_insert(iter);
-	ptr[iter] = o;
-	iter++;
+	o->_link_behind(iter);
+	iter = o;
 }
 
 void DisplayList::add_right_of_iterator (IObject* o)
 {
-	// insert object above iterator
+	// insert object behind iterator
 	// if iterating up then this object will be returned next by this iteration
 	// if iterating down then this object will not be returned by this iteration
 
-	if (count == NELEM(ptr)) { printf("sorted_objects: overflow!\n"); return; }
-
-	_insert(iter);
-	ptr[iter] = o;
-}
-
-void DisplayList::add_at_iterator (IObject* o)
-{
-	// add object at iterator on the 'already-processed' side
-	// so that it is not immediately returned by next()
-
-	if (count == NELEM(ptr)) { printf("sorted_objects: overflow!\n"); return; }
-
-	_insert(iter);
-	ptr[iter] = o;
-	if (iter_up) iter++;
+	o->_link_behind(iter);
 }
 
 void DisplayList::add_left_of (IObject* o, IObject* new_o)
 {
 	// the new object is added left to the reference object.
 	// if this is at the iterator, then the new object is added
-	//   on the same side of the iterator as the reference object.
-	// the reference object must exist.
+	//   on the same side of an iterator as the reference object.
 
-	// use this function if an Object spawns a child left of it,
-	// e.g. if the space ship is firing to the left, then add bullets with this method.
-
-	uint i = _find(o);
-	assert(i<count);		// reference object must exist
-
-	_insert(i);
-	ptr[i] = new_o;
-
-	if (iter > i) iter++;	// note: same equation for both directions
-
-	// if (iter_up)
-	// {
-	// 	if (iter > i) iter++;
-	// }
-	// else
-	// {
-	// 	if (iter > i) iter++;
-	// }
+	new_o->_link_before(o);
 }
 
-void DisplayList::add_right_of  (IObject* o, IObject* new_o)
+void DisplayList::add_right_of (IObject* o, IObject* new_o)
 {
 	// the new object is added right to the reference object.
 	// if this is at the iterator, then the new object is added
 	//   on the same side of an iterator as the reference object.
-	// the reference object must exist.
 
-	// use this function if Object o spawns a child which is assumed to be right of o,
-	// e.g. if the space ship is firing to the right, then add bullets with this method.
-
-	uint i = _find(o);
-	assert(i<count);		// reference object must exist
-
-	_insert(i+1);
-	ptr[i+1] = new_o;
-
-	if (iter > i) iter++;	// note: same equation for both directions
-
-	// if (iter_up)
-	// {
-	// 	if (iter > i) iter++;
-	// }
-	// else
-	// {
-	// 	if (iter > i) iter++;
-	// }
+	new_o->_link_behind(o);
+	if (iter == o) iter = new_o;
 }
 
-bool DisplayList::optimize (uint i)
+bool DisplayList::_try_revert_path (IObject* b, IObject* c)
 {
-	// optimize paths to and from object i.
-	// returns true if 2 points were swapped. (for statistics)
+	// try to revert subpath b->c using o->first() only as an approximation
+	// => reverting b->c does not change path length
+	// => only length change at start and end need to be calculated
 
-	if (count <= 2) return false;
+	// there must be at least 1 point outside range b..c
 
-	// is i the first point?
-	if (i == 0) return sort3_anf(ptr);
+	IObject* a = b->_prev;
+	IObject* d = c->_next;
 
-	// is i the last point?
-	if (i == count-1) return sort3_end(ptr+count-3);
+	FLOAT ab = dist(a, b);
+	FLOAT ac = dist(a, c);
+	FLOAT bd = dist(b, d);
+	FLOAT cd = dist(c, d);
 
-	// sort [i-1,i]:
-	if (i == 1 ? sort3_anf(ptr) : sort4(ptr+i-2)) return true;
-
-	// sort [i,i+1]:
-	return i == count-2 ? sort3_end(ptr+count-3) : sort4(ptr+i-1);
-}
-
-uint DisplayList::sort()
-{
-	// sort the list for optimized drawing
-	// returns the number of swapped points. (for statistics)
-
-	if (count <= 2) return 0;
-
-	uint cnt = 0;
-	cnt += sort3_anf(ptr);
-	cnt += sort3_end(ptr+count-3);
-
-	for (uint i=0; i+4<count; i++)
+	if (ac + bd < ab + cd)
 	{
-		cnt += sort4(ptr+i);
+		a->_next = c;
+		c->_prev = a;
+		c->_next = b;
+		b->_prev = c;
+		b->_next = d;
+		d->_prev = b;
+		return true;
 	}
 
-	//if(cnt) printf("sort swaps: %u in %u points\n",cnt,count);
+	return false;
+}
+
+uint DisplayList::optimize()
+{
+	// reorder the list for optimized drawing
+	// returns the number of optimizations. (for statistics)
+
+	// exit if number of objects <= 2:
+	if (!root || root->_next == root->_prev) return 0;
+
+	uint cnt = 0;
+	IObject* o = root;
+	do
+	{
+		IObject* o2 = o->_next;
+		if (_try_revert_path(o,o2) == false) continue;
+		cnt++;
+		if (o2==root) break;
+	}
+	while ((o=o->_next) != root);
+
+	if (cnt) printf("optimize(): swaps: %u\n",cnt);
 	return cnt;
 }
 
@@ -417,13 +237,37 @@ uint DisplayList::sort()
 
 inline IObject::IObject(cstr _name) : _name(_name)
 {
-	//printf("new %s\n",_name);
+	printf("new %s\n",_name);
 }
 
 inline IObject::~IObject()
 {
-	//printf("delete %s\n",_name);
+	printf("delete %s\n",_name);
 	display_list.remove(this);
+}
+
+void IObject::_link_behind(IObject* p)
+{
+	// link this behind p
+	_prev = p;
+	_next = p->_next;
+	p->_next = this;
+	_next->_prev = this;
+}
+
+void IObject::_link_before(IObject* n)
+{
+	// link this before n
+	_next = n;
+	_prev = n->_prev;
+	n->_prev = this;
+	_prev->_next = this;
+}
+
+void IObject::_unlink()
+{
+	_prev->_next = _next;
+	_next->_prev = _prev;
 }
 
 
@@ -439,7 +283,7 @@ Star::Star() : IObject("Star"), position(rand(MINPOS,MAXPOS),rand(MINPOS,MAXPOS)
 	//printf("star at %.0f,%.0f\n",position.x,position.y);
 }
 
-void Star::draw()
+void Star::draw() const
 {
 	static const LaserSet set{ .speed=1, .pattern=0x3ff, .delay_a=0, .delay_m=0, .delay_e=12 };
 
@@ -459,7 +303,7 @@ Score::Score(const Point& position) : IObject("Score"), position(position), scor
 Score::Score() : IObject("Score"), position(MINPOS+5000,MAXPOS-11000), score(0)
 {}
 
-void Score::draw()
+void Score::draw() const
 {
 	char text[] = "000";
 	uint score = this->score;
@@ -483,7 +327,7 @@ Lifes::Lifes (const Point& position) : IObject("Lifes"), position(position), lif
 Lifes::Lifes() : IObject("Lifes"), position(MINPOS+14000,MAXPOS-11000), lifes(NUM_LIFES)
 {}
 
-void Lifes::draw()
+void Lifes::draw() const
 {
 	if (lifes <= 1) return;			// no additional lifes left
 
@@ -526,35 +370,26 @@ Object::Object (cstr name, const Point& position, FLOAT orientation, FLOAT scale
 	t.setOffset(position);
 }
 
-void Object::wrap_at_borders()
+void Object::_wrap_at_borders()
 {
-	// TODO: should be removed and re-inserted in display list
-	// problem: this may be before or after the Iterator!
+	// ATTN: insertion may be before or after the Iterator!
 
-	t.dx = int16(t.dx);
-	t.dy = int16(t.dy);
-	//if (position.x < MINPOS) position.x += SIZE;
-	//if (position.x > MAXPOS) position.x -= SIZE;
-	//if (position.y < MINPOS) position.y += SIZE;
-	//if (position.y > MAXPOS) position.y -= SIZE;
+	if (t.dx >= MINPOS && t.dx <= MAXPOS && t.dy >= MINPOS && t.dy <= MAXPOS)
+		return;
+
+	if (t.dx < MINPOS) t.dx += SIZE;
+	if (t.dx > MAXPOS) t.dx -= SIZE;
+	if (t.dy < MINPOS) t.dy += SIZE;
+	if (t.dy > MAXPOS) t.dy -= SIZE;
+
+	_unlink();
+	display_list.add(this);
 }
 
 void Object::move()
 {
 	t.addOffset(movement);
-	wrap_at_borders();
-}
-
-void Object::rotate (FLOAT angle)
-{
-	if (angle == 0) return;
-
-	FLOAT dx=t.dx, dy=t.dy;
-	t.dx = 0;
-	t.dy = 0;
-	t.rotate(angle);
-	t.dx = dx;
-	t.dy = dy;
+	_wrap_at_borders();
 }
 
 
@@ -567,7 +402,7 @@ Bullet::Bullet (const Point& p, const Dist& m) :
 	count_down(BULLET_LIFETIME)
 {}
 
-void Bullet::draw()
+void Bullet::draw() const
 {
 	XY2::setTransformation(t);
 	XY2::drawLine(Point(0,0),Point(0,FLOAT(1.000)),fast_straight);
@@ -580,10 +415,10 @@ void Bullet::move()
 	Object::move();
 
 	// hit tests:
-	Point p0{t.dx,t.dy};
-	for (uint i=0; i<display_list.count; i++)	// attn: iterator in use by loop over IObjects!
+	Point p0 = last();		// position of tip
+	for (IObject* o = _next; o!=this; o=o->_next)
 	{
-		if (display_list.ptr[i]->hit(p0))
+		if (o->hit(p0))
 		{
 			delete this;
 			return;
@@ -626,7 +461,7 @@ Asteroid::Asteroid (uint size, const Point& p, const Dist& m, FLOAT rotation) :
 	}
 }
 
-void Asteroid::draw()
+void Asteroid::draw() const
 {
 	XY2::setTransformation(t);
 	XY2::drawPolygon(num_vertices,vertices,fast_rounded);
@@ -689,7 +524,7 @@ bool Asteroid::hit (const Point& p)
 PlayerShip::PlayerShip() : Object("PlayerShip", Transformation(SIZE/90,SIZE/90, 0,0, 0,0), Dist(0,0))
 {}
 
-void PlayerShip::draw()
+void PlayerShip::draw() const
 {
 	XY2::setTransformation(t);
 
@@ -762,7 +597,7 @@ bool PlayerShip::hit (const Point&)
 //							ALIEN SHIP
 // =====================================================================
 
-void AlienShip::draw()
+void AlienShip::draw() const
 {
 	// TODO
 }
@@ -843,7 +678,7 @@ void Laseroids::runOneFrame()
 	{
 		score->score++;
 		move_all();
-		display_list.sort();	// incremental optimization
+		display_list.optimize();	// incremental optimization
 		draw_all();
 	}
 }

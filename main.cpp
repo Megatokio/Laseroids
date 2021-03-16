@@ -134,8 +134,6 @@ int main()
 	const FLOAT pi = FLOAT(3.1415926538);
 	LissajousData data(fmin, fmax, steps, rots);
 
-	Laseroids laseroids;
-	printf("main#%u\n",__LINE__);
 
 	while (1)
 	{
@@ -230,11 +228,11 @@ int main()
 				case 'q':
 					laseroids.accelerateShip();
 					break;
-				case 'a':
+				case ' ':
 					laseroids.shootCannon();
 					break;
-				case ' ':
-					laseroids.activateShield(1);
+				case 'a':
+					laseroids.activateShield();
 					break;
 				}
 			}
@@ -256,11 +254,11 @@ int main()
 			drawLissajous (w,h, data, fast_rounded);
 			break;
 		case 4:
-			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true);
-			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true);
+			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
+			//xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true);
 			break;
 		case 5:
-			xy2.printText(Point(0,0),w/50,h/40,"LASTEROIDS!",true,fast_straight,fast_rounded);
+			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
 			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
 			break;
 		case 6:

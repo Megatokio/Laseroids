@@ -22,7 +22,7 @@ public:
 	virtual Point first() const { return origin(); }	// start of polygon / drawing
 	virtual Point last() const { return first(); }		// end of polygon / drawing
 	virtual void draw() const = 0;
-	virtual void move() = 0;
+	virtual void move(FLOAT elapsed_time) = 0;
 	virtual bool hit (const Point&) { return false; }
 
 	cstr  _name = "IObject";
@@ -53,7 +53,7 @@ public:
 
 	// iterate:
 	IObject* first(){ iter = root; return iter; }
-	IObject* next()	{ iter = iter->_next; return iter==root ? nullptr : iter; }
+	IObject* next()	{ if (iter) iter = iter->_next; return iter==root ? nullptr : iter; }
 
 	IObject* root = nullptr;
 
@@ -69,7 +69,7 @@ public:
 	Star();		// star at random position
 
 	virtual void draw() const override;
-	virtual void move() override {} // does not move
+	virtual void move(FLOAT elapsed_time) override {} // does not move
 	virtual Point origin() const override { return position; }
 
 	Point position;
@@ -82,7 +82,7 @@ public:
 	Score();	// score at default position
 
 	virtual void draw() const override;
-	virtual void move() override {} // does not move
+	virtual void move(FLOAT elapsed_time) override {} // does not move
 	virtual Point origin() const override { return position; }
 
 	Point position;
@@ -95,7 +95,7 @@ public:
 	Lifes(const Point& position);
 	Lifes();	// display of lifes left at standard position
 	virtual void draw() const override;
-	virtual void move() override {} // does not move
+	virtual void move(FLOAT elapsed_time) override {} // does not move
 	virtual Point origin() const override { return position; }
 
 	Point position;
@@ -117,7 +117,7 @@ public:
 	Object (cstr name, FLOAT x, FLOAT y) : IObject(name) { t.setOffset(x,y); }
 
 	virtual void draw() const override = 0;
-	virtual void move() override;
+	virtual void move(FLOAT elapsed_time) override;
 	virtual bool overlap (const Point&) { return false; }
 	virtual Point origin() const override { return getPosition(); }
 
@@ -139,9 +139,9 @@ public:
 	Bullet(const Point& position, const Dist& movement);
 
 	virtual void draw() const override;
-	virtual void move() override;
+	virtual void move(FLOAT elapsed_time) override;
 
-	int count_down;
+	FLOAT remaining_lifetime;
 };
 
 
@@ -152,7 +152,7 @@ public:
 	Asteroid(uint size_id, const Point& position, const Dist& speed, FLOAT rotation=0);
 
 	virtual void draw() const override;
-	virtual void move() override;
+	virtual void move(FLOAT elapsed_time) override;
 	virtual bool overlap (const Point& pt) override;
 	virtual bool hit (const Point& p) override;
 
@@ -168,9 +168,10 @@ class PlayerShip : public Object
 {
 public:
 	PlayerShip();			// at (0,0)
+	~PlayerShip();
 
 	virtual void draw() const override;
-	virtual void move() override;
+	virtual void move(FLOAT elapsed_time) override;
 	virtual bool hit (const Point& p) override;
 
 	bool shield = false;
@@ -185,7 +186,7 @@ class AlienShip : public Object
 public:
 	bool visible = false;
 	virtual void draw() const override;
-	virtual void move() override;
+	virtual void move(FLOAT elapsed_time) override;
 	virtual bool hit (const Point& p) override;
 	//AlienShip(){printf("%s\n",__func__);}
 	AlienShip(const Point& position);
@@ -194,20 +195,41 @@ public:
 class Laseroids
 {
 public:
-	Laseroids();
-	~Laseroids();
+	Laseroids()=default;
+	~Laseroids()=default;
 
-	void startNewGame();
-	void runOneFrame();
-	void accelerateShip();
-	void rotateRight();
-	void rotateLeft();
-	void activateShield(bool=1);
-	void shootCannon();
-	bool isGameOver();
+	void startNewGame() { state=START_NEW_GAME; }
+	static void runOneFrame();
+	static void accelerateShip();
+	static void rotateRight();
+	static void rotateLeft();
+	static void activateShield(bool=1);
+	static void shootCannon();
+	static bool isGameOver() { return state == IDLE; }
+
+	enum State
+	{
+		IDLE,
+		START_NEW_GAME,
+		GET_READY,
+		GAME,
+		LEVEL_COMPLETED,
+		RESPAWNING_LIFE,
+		GAME_OVER,
+		NEW_HIGHSCORE,
+		ENTER_NAME
+	};
+	static State state;
+
+private:
+	static void move_all (FLOAT elapsed_time);
+	static void draw_all ();
+	static void draw_big_message(cstr text);
+	static void start_new_level(uint num_asteroids);
 };
 
 
+extern Laseroids laseroids;
 
 
 

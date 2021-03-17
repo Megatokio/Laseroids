@@ -5,6 +5,8 @@ include(pico_sdk_import.cmake)
 project(XY2Scanner)
 pico_sdk_init()
 
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DRELEASE -DNDEBUG")
 
 add_executable(Laseroids
 	utilities.cpp

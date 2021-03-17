@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pico/stdlib.h"
+#include "FlashDrive.h"
 
 
 Laseroids laseroids;
@@ -20,9 +21,7 @@ Laseroids laseroids;
 //static inline FLOAT sin (FLOAT a) { return sinf(a); }
 //static inline FLOAT cos (FLOAT a) { return cosf(a); }
 static constexpr FLOAT pi = FLOAT(3.1415926538);
-//static inline FLOAT rad4deg(FLOAT deg) { return pi/180 * deg; }
 static inline FLOAT rad4deg(int deg)   { return pi/180 * FLOAT(deg); }
-//static inline int   deg4rad(FLOAT rad) { return int(180/pi * rad +FLOAT(0.5)); }
 
 
 /*	Das Spielfeld wrapt in beiden Dimensionen:
@@ -33,7 +32,7 @@ static constexpr FLOAT MINPOS = -0x8000;
 
 //static constexpr uint NUM_ASTEROIDS = 3;
 static constexpr uint NUM_STARS = 7;
-static constexpr uint NUM_LIFES = 4;		// incl. the currently active one
+static constexpr uint NUM_LIFES = 3;			// excl. the current one
 
 static constexpr FLOAT BULLET_LIFETIME = FLOAT(3.0);
 static constexpr FLOAT BULLET_SPEED = SIZE/BULLET_LIFETIME * FLOAT(0.7);
@@ -45,10 +44,10 @@ static constexpr FLOAT SHIELD_RADIANS = 4;
 
 // ******** Components of Laseroids Game **************
 static DisplayList display_list;
-static Lifes* lifes;
-static Score* score;
-static PlayerShip* player = nullptr;
-static AlienShip* alien;
+static Lifes* lifes = nullptr;
+static Score* score = nullptr;
+Player* player = nullptr;
+static Alien* alien = nullptr;
 static uint num_asteroids;
 static uint32 time_last_run_us;
 static uint32 time_start_of_game_us;
@@ -59,15 +58,61 @@ static FLOAT state_countdown;
 
 
 // ********** Hiscore Table ****************
+
 struct HiScore
 {
-	char   name[8];
-	uint   points;
-	//uint16 hour,minute;	// when
-	uint   seconds;
+	char   name[12]{"Megatokio"};
+	uint   score = 100;
+	uint   seconds = 0;
+	uint16 hour = 0, minute = 0;	// when
+
+	HiScore()=default;
+	HiScore(cstr nam, uint score, uint secs, uint16 hr=0, uint16 min=0)
+		: score(score),seconds(secs),hour(hr),minute(min) { memcpy(name,nam,sizeof(name)); }
 };
-static HiScore hiscores[10];
-static uint num_hiscores = 0;
+
+struct HiScores
+{
+	uint magic = 1734645172;
+	static constexpr uint nelem = (Flash::page_size-sizeof(magic))/sizeof(HiScore);
+	HiScore hiscores[nelem];
+
+	bool is_hiscore(uint score) { return score > hiscores[nelem-1].score; }
+
+	void add_hiscore (cstr name, uint score, uint seconds, uint16 hour=12, uint16 minute=0)
+	{
+		// is it a high score?
+		if (score <= hiscores[nelem-1].score) return;
+
+		// trim name:
+		while (*name==' ') name++;
+		for (ptr p = strchr(name,0); --p>=name && *p==' ';) { *p=0; }
+
+		// if player already has a hiscore then update this:
+		for (uint i=0; i<nelem; i++)
+		{
+			if (strcmp(name,hiscores[i].name)) continue; // not this player
+			if (score <= hiscores[i].score) return;		 // old hiscore is better
+			break; // => update with current meta data
+		}
+
+		// find position in table and shift lower scores down:
+		uint i = nelem-1;
+		while (i && score > hiscores[i-1].score)
+		{
+			hiscores[i] = hiscores[i-1];
+			i--;
+		}
+
+		// add it:
+		if (*name==0) name = "anonymous";
+		new(&hiscores[i]) HiScore(name,score,seconds,hour,minute);
+		printf("new hiscore added: %s %u in %usec at %u:%02u\n",name,score,seconds,hour,minute);
+	}
+
+};
+
+static HiScores hiscores;
 
 
 
@@ -137,7 +182,7 @@ void DisplayList::remove (IObject* o)
 
 	if (o == iter)
 	{
-		iter = iter->_prev;
+		iter = o->_prev;
 	}
 
 	o->_unlink();
@@ -210,7 +255,7 @@ void DisplayList::add_right_of (IObject* o, IObject* new_o)
 	if (iter == o) iter = new_o;
 }
 
-bool DisplayList::_try_revert_path (IObject* b, IObject* c)
+bool DisplayList::try_revert_path (IObject* b, IObject* c)
 {
 	// try to revert subpath b->c using o->first() only as an approximation
 	// => reverting b->c does not change path length
@@ -253,7 +298,7 @@ uint DisplayList::optimize()
 	do
 	{
 		IObject* o2 = o->_next;
-		if (_try_revert_path(o,o2) == false) continue;
+		if (try_revert_path(o,o2) == false) continue;
 		cnt++;
 		if (o2==root) break;
 	}
@@ -268,7 +313,7 @@ uint DisplayList::optimize()
 //						IObject - Interface for Objects
 // =====================================================================
 
-inline IObject::IObject(cstr _name) : _name(_name)
+inline IObject::IObject(cstr _name) : _name(_name), _next(this), _prev(this)
 {
 	printf("new %s\n",_name);
 }
@@ -308,10 +353,12 @@ void IObject::_unlink()
 //							STAR
 // =====================================================================
 
-Star::Star (const Point& position) : IObject("Star"), position(position)
+static const char _star[] = "Star";
+
+Star::Star (const Point& position) : IObject(_star), position(position)
 {}
 
-Star::Star() : IObject("Star"), position(rand(MINPOS,MAXPOS),rand(MINPOS,MAXPOS))
+Star::Star() : IObject(_star), position(rand(MINPOS,MAXPOS),rand(MINPOS,MAXPOS))
 {
 	//printf("star at %.0f,%.0f\n",position.x,position.y);
 }
@@ -330,11 +377,22 @@ void Star::draw() const
 //							SCORE
 // =====================================================================
 
-Score::Score(const Point& position) : IObject("Score"), position(position), score(0)
-{}
+static const char _score[] = "Score";
 
-Score::Score() : IObject("Score"), position(MINPOS+5000,MAXPOS-11000), score(0)
-{}
+Score::Score(const Point& position) : IObject(_score), position(position), score(0)
+{
+	::score = this;
+}
+
+Score::Score() : IObject(_score), position(MINPOS+5000,MAXPOS-11000), score(0)
+{
+	::score = this;
+}
+
+Score::~Score()
+{
+	::score = nullptr;
+}
 
 void Score::draw() const
 {
@@ -354,15 +412,26 @@ void Score::draw() const
 //							LIFES
 // =====================================================================
 
-Lifes::Lifes (const Point& position) : IObject("Lifes"), position(position), lifes(NUM_LIFES)
-{}
+static const char _lifes[] = "Lifes";
 
-Lifes::Lifes() : IObject("Lifes"), position(MINPOS+14000,MAXPOS-11000), lifes(NUM_LIFES)
-{}
+Lifes::Lifes (const Point& position) : IObject(_lifes), position(position), lifes(NUM_LIFES)
+{
+	::lifes = this;
+}
+
+Lifes::Lifes() : IObject(_lifes), position(MINPOS+14000,MAXPOS-11000), lifes(NUM_LIFES)
+{
+	::lifes = this;
+}
+
+Lifes::~Lifes()
+{
+	::lifes = nullptr;
+}
 
 void Lifes::draw() const
 {
-	if (lifes <= 1) return;			// no additional lifes left
+	if (!lifes) return;			// no additional lifes left
 
 	static const FLOAT size = 500;
 	static Point shape[] =
@@ -376,9 +445,9 @@ void Lifes::draw() const
 	XY2::resetTransformation();
 	XY2::setOffset(position.x,position.y);
 
-	for (uint i=1; i<lifes; i++)	// draw one less because one is in use
+	for (uint i=0; i<lifes; i++)
 	{
-		if (i>1) XY2::addOffset(size*6,0);
+		if (i) XY2::addOffset(size*6,0);
 		XY2::drawPolygon(4,shape,slow_straight);
 	}
 }
@@ -403,7 +472,7 @@ Object::Object (cstr name, const Point& position, FLOAT orientation, FLOAT scale
 	t.setOffset(position);
 }
 
-void Object::_wrap_at_borders()
+void Object::wrap_at_borders()
 {
 	// ATTN: insertion may be before or after the Iterator!
 
@@ -422,7 +491,7 @@ void Object::_wrap_at_borders()
 void Object::move(FLOAT elapsed_time)
 {
 	t.addOffset(movement * elapsed_time);
-	_wrap_at_borders();
+	wrap_at_borders();
 }
 
 
@@ -430,8 +499,10 @@ void Object::move(FLOAT elapsed_time)
 //							BULLET
 // =====================================================================
 
+const char _bullet[] = "Bullet";
+
 Bullet::Bullet (const Point& p, const Dist& m) :
-	Object("Bullet", Transformation(m.dy/*fx*/,m.dy/*fy*/,m.dx/*sx*/,-m.dx/*sy*/,p.x,p.y), m),
+	Object(_bullet, Transformation(m.dy/*fx*/,m.dy/*fy*/,m.dx/*sx*/,-m.dx/*sy*/,p.x,p.y), m),
 	remaining_lifetime(BULLET_LIFETIME)
 {}
 
@@ -465,13 +536,15 @@ void Bullet::move(FLOAT elapsed_time)
 //							ASTEROID
 // =====================================================================
 
+const char _asteroid[] = "Asteroid";
+
 Asteroid::~Asteroid()
 {
 	num_asteroids--;
 }
 
 Asteroid::Asteroid (uint size, const Point& p, const Dist& m, FLOAT rotation) :
-	Object("Asteroid", Transformation(1,1,0,0, p.x,p.y), m),
+	Object(_asteroid, Transformation(1,1,0,0, p.x,p.y), m),
 	size(size),
 	rotation(rotation)
 {
@@ -512,9 +585,9 @@ void Asteroid::move(FLOAT elapsed_time)
 	// collission test with other Asteroid
 	// TODO
 
-	// collission test with Player
+	// collission test with player:
 
-	if (player && (origin()-player->origin()).length() < radians+SHIELD_RADIANS*SIZE/90)
+	if ((origin()-player->origin()).length() < radians+SHIELD_RADIANS*SIZE/90)
 	{
 		// test for overlap with all of our vertices:
 		for (uint i=0; i<num_vertices; i++)
@@ -523,17 +596,11 @@ void Asteroid::move(FLOAT elapsed_time)
 			t.transform(p);
 			if (player->hit(p))
 			{
-				printf("***HIT***HIT***HIT***\n");//return;
 				hit(origin());	// hit self
 				return;			// and we are gone
 			}
 		}
 	}
-}
-
-bool Asteroid::overlap (const Point& pt)
-{
-	return (pt-Point(t.dx,t.dy)).length() <= radians;
 }
 
 bool Asteroid::hit (const Point& p)
@@ -575,45 +642,24 @@ bool Asteroid::hit (const Point& p)
 //							PLAYER SHIP
 // =====================================================================
 
+const char _player[] = "Player";
+
 static bool is_right_of (const Point& p1, const Point& p2, const Point& pt)
 {
 	// test whether pt is right of line from p1 to p2
 
 	Dist a{p2-p1};
 	Dist b{pt-p1};
-	FLOAT y = a.dx*b.dy - a.dy*b.dx;
-	return y < 0;
+	return a.dx*b.dy < a.dy*b.dx;
 }
 
 // always at (0,0) with 0 speed and no rotation:
-PlayerShip::PlayerShip() : Object("PlayerShip", Transformation(SIZE/90,SIZE/90, 0,0, 0,0), Dist(0,0))
+Player::Player() : Object(_player, Transformation(SIZE/90,SIZE/90, 0,0, 0,0), Dist(0,0))
 {
-	// TEST:
-	Point shape[4] = { {0,-2},{-2,-1},{0,3},{2,-1} };
-	Point pt{0,0};
-	if (is_right_of(shape[0],shape[1],pt) &&
-		is_right_of(shape[1],shape[2],pt) &&
-		is_right_of(shape[2],shape[3],pt) &&
-		is_right_of(shape[3],shape[0],pt))
-	{}//ok
-	else
-	{
-		printf("*** ALERT: is_rigth_of() doesn't work! ***\n");
-		printf("*** ALERT: is_rigth_of() doesn't work! ***\n");
-		printf("*** ALERT: is_rigth_of() doesn't work! ***\n");
-	}
-	if (is_right_of(shape[1],shape[0],pt) ||
-		is_right_of(shape[2],shape[1],pt) ||
-		is_right_of(shape[3],shape[2],pt) ||
-		is_right_of(shape[0],shape[3],pt))
-	{
-		printf("*** ALERT: is_rigth_of() doesn't work! #2 ***\n");
-		printf("*** ALERT: is_rigth_of() doesn't work! #2 ***\n");
-		printf("*** ALERT: is_rigth_of() doesn't work! #2 ***\n");
-	}
+	player = this;
 }
 
-PlayerShip::~PlayerShip()
+Player::~Player()
 {
 	player = nullptr;
 }
@@ -629,7 +675,7 @@ static const Point player_ship_shape[] =
 	{0,2.5f}
 };
 
-void PlayerShip::draw() const
+void Player::draw() const
 {
 	XY2::setTransformation(t);
 
@@ -657,7 +703,7 @@ void PlayerShip::draw() const
 	XY2::drawPolyLine(6,player_ship_shape,slow_straight);
 }
 
-void PlayerShip::accelerate()
+void Player::accelerate()
 {
 	if (!accelerating) return;
 
@@ -666,7 +712,7 @@ void PlayerShip::accelerate()
 
 	Dist d{getDirection()};		// orientation of ship
 	d *= FLOAT(a) / 4;
-	movement = movement + d;
+	movement += d;
 
 	if (movement.length() > SIZE/5)	// max speed limiter
 	{
@@ -674,7 +720,7 @@ void PlayerShip::accelerate()
 	}
 }
 
-void PlayerShip::move(FLOAT elapsed_time)
+void Player::move(FLOAT elapsed_time)
 {
 	accelerate();
 	rotate(rotation*elapsed_time);
@@ -683,7 +729,7 @@ void PlayerShip::move(FLOAT elapsed_time)
 	// TODO: collission / hit test
 }
 
-bool PlayerShip::hit (const Point& pt)
+bool Player::hit (const Point& pt)
 {
 	// fast:
 	if (pt.x >= t.dx+SHIELD_RADIANS*SIZE/90) return false;
@@ -708,7 +754,8 @@ bool PlayerShip::hit (const Point& pt)
 		is_right_of(shape[3],shape[0],pt))
 	{
 		// TODO Animation
-		delete this;
+		is_dead = true;
+		accelerating = false;
 		return true;
 	}
 
@@ -716,30 +763,90 @@ bool PlayerShip::hit (const Point& pt)
 	return false;
 }
 
+void Player::accelerateShip()
+{
+	if (is_dead) return;
+	shield = false;
+	accelerating += 10;
+}
+
+void Player::rotateRight()
+{
+	if (is_dead) return;
+
+	if (rotation > rad4deg(20))
+	{
+		rotation = 0;
+	}
+	else if (rotation > rad4deg(-100))
+	{
+		rotation -= rad4deg(30);
+	}
+}
+
+void Player::rotateLeft()
+{
+	if (is_dead) return;
+
+	if (rotation < rad4deg(-20))
+	{
+		rotation = 0;
+	}
+	else if (rotation < rad4deg(100))
+	{
+		rotation += rad4deg(30);
+	}
+}
+
+void Player::activateShield (bool f)
+{
+	if (is_dead) return;
+	shield = f;
+}
+
+void Player::shootCannon()
+{
+	if (is_dead) return;
+
+	shield = false;
+	Dist movement{getDirection().normalized()*BULLET_SPEED};
+	Point position{getPosition()+movement/10};
+	display_list.add_right_of(player, new Bullet(position,movement));
+}
+
+
 // =====================================================================
 //							ALIEN SHIP
 // =====================================================================
 
-void AlienShip::draw() const
+const char _alien[] = "Alien";
+
+void Alien::draw() const
 {
 	// TODO
 }
 
-void AlienShip::move(FLOAT elapsed_time)
+void Alien::move(FLOAT elapsed_time)
 {
 	// TODO
 	Object::move(elapsed_time);
 }
 
-bool AlienShip::hit (const Point&)
+bool Alien::hit (const Point&)
 {
 	// TODO
 	return false;
 }
 
-AlienShip::AlienShip(const Point& _position) : Object("AlienShip", _position)
+Alien::Alien(const Point& _position) : Object(_alien, _position)
 {
+	alien = this;
 	// TODO
+}
+
+Alien::~Alien()
+{
+	alien = nullptr;
 }
 
 
@@ -766,6 +873,14 @@ void Laseroids::move_all (FLOAT elapsed_time)
 	}
 }
 
+void Laseroids::remove_bullets()
+{
+	for (IObject* o = display_list.first(); o; o = display_list.next())
+	{
+		if (o->_name == _bullet) delete o;
+	}
+}
+
 void Laseroids::draw_big_message (cstr text)
 {
 	XY2::resetTransformation();
@@ -775,6 +890,10 @@ void Laseroids::draw_big_message (cstr text)
 void Laseroids::start_new_level (uint level)
 {
 	::level = level;
+
+	delete alien;
+	remove_bullets();
+
 	while (num_asteroids < level)
 	{
 		Point pt{rand(MINPOS,MAXPOS),rand(MINPOS,MAXPOS)};
@@ -786,13 +905,13 @@ void Laseroids::start_new_level (uint level)
 	}
 
 	delete player;
-	display_list.add(player = new PlayerShip);
+	display_list.add(new Player);
 }
 
 void Laseroids::runOneFrame()
 {
 	uint32 now = time_us_32();
-	FLOAT elapsed_time = min(now - time_last_run_us, uint32(100000)) / FLOAT(1e6);
+	FLOAT elapsed_time = min(now - time_last_run_us, uint32(100000)) * FLOAT(1e-6);
 	time_last_run_us = now;
 
 	switch (state)
@@ -808,22 +927,25 @@ void Laseroids::runOneFrame()
 
 		display_list.~DisplayList();
 		new(&display_list) DisplayList;
-		player = nullptr;
-		alien = nullptr;
-		num_asteroids = 0;
+		assert(player == nullptr);
+		assert(alien == nullptr);
+		assert(lifes == nullptr);
+		assert(score == nullptr);
+		assert(num_asteroids == 0);
 
-		display_list.add(lifes = new Lifes);
-		display_list.add(score = new Score);
+		display_list.add(new Lifes);
+		display_list.add(new Score);
 		for (uint i=0; i<NUM_STARS; i++) { display_list.add(new Star); }
 
 		start_new_level(1);
 		state = GET_READY;
-		state_countdown = FLOAT(2.0);
+		state_countdown = FLOAT(1.0);
 		return;
 	}
 	case GET_READY:
 	{
 		draw_big_message("Get Ready!");
+
 		state_countdown -= elapsed_time;
 		if (state_countdown <= 0) state = GAME;
 		return;
@@ -831,28 +953,28 @@ void Laseroids::runOneFrame()
 	case LEVEL_COMPLETED:
 	{
 		draw_big_message("Well done!");
+
 		state_countdown -= elapsed_time;
-		if (state_countdown <= 0) state = GET_READY;
-		return;
-	}
-	case NEW_HIGHSCORE:
-	{
-		draw_big_message("HISCORE!");
-		state_countdown -= elapsed_time;
-		if (state_countdown <= 0) state = ENTER_NAME;
+		if (state_countdown <= 0)
+		{
+			start_new_level(level+1);
+			state = GET_READY;
+			state_countdown = FLOAT(1.0);
+		}
 		return;
 	}
 	case RESPAWNING_LIFE:
 	{
-		state_countdown -= elapsed_time;
-
 		if (uint(state_countdown*5)%2)
-			draw_big_message("---respawning---");
+			draw_big_message("respawning");
 
+		state_countdown -= elapsed_time;
 		if (state_countdown <= 0)
 		{
-			//delete player;
-			display_list.add(player = new PlayerShip);
+			remove_bullets();
+			delete alien;
+			delete player;
+			display_list.add(new Player);
 			player->shield = true;
 			state = GAME;
 		}
@@ -860,19 +982,16 @@ void Laseroids::runOneFrame()
 	}
 	case GAME:
 	{
-		if (player)
-		{
-			move_all(elapsed_time);
-			display_list.optimize();
-			draw_all();
-		}
+		move_all(elapsed_time);
+		display_list.optimize();
+		draw_all();
+
 		if (num_asteroids==0)
 		{
-			start_new_level(level+1);
 			state = LEVEL_COMPLETED;
 			state_countdown = FLOAT(2.0);
 		}
-		if (player == nullptr)
+		if (player->is_dead)
 		{
 			if (lifes->lifes)
 			{
@@ -891,24 +1010,131 @@ void Laseroids::runOneFrame()
 	case GAME_OVER:
 	{
 		draw_big_message("GAME OVER");
+
 		state_countdown -= elapsed_time;
 		if (state_countdown > 0) return;
 
-		if (score->score <= hiscores[NELEM(hiscores)-1].points)
-		{
-			state = IDLE;
-		}
-		else
+		if (hiscores.is_hiscore(score->score))
 		{
 			state = NEW_HIGHSCORE;
 			state_countdown = FLOAT(2.0);
 		}
+		else
+		{
+			state = IDLE;
+		}
+		return;
+	}
+	case NEW_HIGHSCORE:
+	{
+		draw_big_message("HISCORE!");
+
+		state_countdown -= elapsed_time;
+		if (state_countdown <= 0) state = ENTER_NAME;
 		return;
 	}
 	case ENTER_NAME:
-		draw_big_message("Your Name:");		// TODO
-		return;
+	{
+		static constexpr int name_len = NELEM(HiScore::name)-1;
+		char name[name_len+1] = {0};
+		int idx = 0;
 
+		for(;;)
+		{
+			static constexpr FLOAT ch0 = SIZE/80;	// char height for 1px (char height = 8px)
+			static constexpr FLOAT cw0 = SIZE/90;	// char width  for 1px (char height = 8px)
+			XY2::resetTransformation();
+			XY2::printText(Point(0, ch0), cw0, ch0, "Your Name:", true);
+
+			static constexpr FLOAT ch = SIZE/100;	// char height for 1px (char height = 8px)
+			static constexpr FLOAT cw = SIZE/100;	// char width  for 1px (char height = 8px)
+
+			idx = (idx+name_len) % name_len;
+
+			// draw underscores:
+			for (int i=name_len; i--; )
+			{
+				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
+				Point a{pos.x-3*cw,pos.y-2*ch};
+				Point e{pos.x+3*cw,pos.y-2*ch};
+				if (i==idx)
+				{
+					static int flicker = 0;
+					if (++flicker & 3)
+					{
+						XY2::drawLine(e,a,slow_straight); a.y = e.y += ch/8;
+						XY2::drawLine(a,e,fast_straight); a.y = e.y += ch/8;
+						XY2::drawLine(e,a,slow_straight);
+					}
+				}
+				else
+				{
+					XY2::drawLine(e,a,fast_straight);
+				}
+			}
+
+			// print name so far:
+			for (int i=0; i<name_len; i++)
+			{
+				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
+				char text[2] = {name[i],0};
+				XY2::printText(pos, cw, ch, text, true);
+				if (i==idx)
+				{
+					pos.x += cw/8;
+					pos.y += ch/8;
+					XY2::printText(pos, cw, ch, text, true);
+				}
+			}
+
+			// read char from player and process it:
+			static constexpr int ESC = 27;
+			int c;
+			while ((c = getchar_timeout_us(0)) >= 0)
+			{
+				if (c>='a' && c<='z') c += 'A'-'a';
+				if ((c>='A' && c<='Z') || (c>='0' && c<= '9') || c=='.' || c=='-' || c==' ')
+				{
+					name[idx++] = char(c);
+				}
+				else if (c==ESC)
+				{
+					esc: c = getchar_timeout_us(5000);
+
+					if (c=='[')
+					{
+						c = getchar_timeout_us(5000);
+						if (c=='D') { idx--; }
+						else if (c=='C') { idx++; }
+						else if (c==ESC) goto esc;
+						else if (c>0) printf("unhandled escape sequence: ESC '[' 0x%02x\n",c);
+					}
+					else if (c==ESC) goto esc;
+					else if (c>0) printf("unhandled escape sequence: ESC 0x%02x\n",c);
+				}
+				else if (c==127)
+				{
+					name[idx] = ' ';
+					idx--;
+				}
+				else if (c==8)
+				{
+					idx--;
+				}
+				else if (c==13)
+				{
+					uint seconds = now - time_start_of_game_us;
+					hiscores.add_hiscore(name,score->score,seconds);
+					state = IDLE;
+					return;
+				}
+				else if (c>0)
+				{
+					printf("unhandled char: 0x%02x ('%c')\n", c, c>=32&&c<127?c:' ');
+				}
+			}
+		}
+	}
 	default:
 		printf("internal error #712\n");
 		state = IDLE;
@@ -917,59 +1143,14 @@ void Laseroids::runOneFrame()
 }
 
 
-void Laseroids::accelerateShip()
-{
-	activateShield(false);
-	if (player) player->accelerating += 10;
-}
 
-void Laseroids::rotateRight()
-{
-	if (!player) return;
 
-	//activateShield(false);
-	if (player->rotation > rad4deg(20))
-	{
-		player->rotation = 0;
-	}
-	else if (player->rotation > rad4deg(-100))
-	{
-		player->rotation -= rad4deg(30);
-	}
-}
 
-void Laseroids::rotateLeft()
-{
-	if (!player) return;
 
-	//activateShield(false);
-	if (player->rotation < rad4deg(-20))
-	{
-		player->rotation = 0;
-	}
-	else if (player->rotation < rad4deg(100))
-	{
-		player->rotation += rad4deg(30);
-	}
-}
 
-void Laseroids::activateShield(bool f)
-{
-	if (!player) return;
 
-	player->shield = f;
-}
 
-void Laseroids::shootCannon()
-{
-	if (!player) return;
 
-	activateShield(false);
-	Dist movement{player->getDirection().normalized()*BULLET_SPEED};
-	Point position{player->getPosition()+movement/10};
-	Bullet* bullet = new Bullet(position,movement);
-	if (bullet) display_list.add_right_of(player, bullet);
-}
 
 
 

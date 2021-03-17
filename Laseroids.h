@@ -25,7 +25,7 @@ public:
 	virtual void move(FLOAT elapsed_time) = 0;
 	virtual bool hit (const Point&) { return false; }
 
-	cstr  _name = "IObject";
+	cstr _name;
 	IObject* _next;
 	IObject* _prev;
 	void _link_behind(IObject* p);	// link this behind p
@@ -48,7 +48,7 @@ public:
 	void remove (IObject*);
 
 	uint optimize();
-	bool _try_revert_path(IObject* a, IObject* b);
+	bool try_revert_path (IObject* a, IObject* b);
 	IObject* _best_insertion_point (IObject* new_o);
 
 	// iterate:
@@ -80,9 +80,10 @@ class Score : public IObject
 public:
 	Score(const Point& position);
 	Score();	// score at default position
+	virtual ~Score() override;
 
 	virtual void draw() const override;
-	virtual void move(FLOAT elapsed_time) override {} // does not move
+	virtual void move(FLOAT) override {} // does not move
 	virtual Point origin() const override { return position; }
 
 	Point position;
@@ -94,8 +95,9 @@ class Lifes : public IObject
 public:
 	Lifes(const Point& position);
 	Lifes();	// display of lifes left at standard position
+	virtual ~Lifes() override;
 	virtual void draw() const override;
-	virtual void move(FLOAT elapsed_time) override {} // does not move
+	virtual void move(FLOAT) override {} // does not move
 	virtual Point origin() const override { return position; }
 
 	Point position;
@@ -118,14 +120,13 @@ public:
 
 	virtual void draw() const override = 0;
 	virtual void move(FLOAT elapsed_time) override;
-	virtual bool overlap (const Point&) { return false; }
 	virtual Point origin() const override { return getPosition(); }
 
 	Point getPosition() const { return Point(t.dx,t.dy); }
 	Dist getDirection() const { return Dist(t.sx,t.fy); }		// Y axis
 	FLOAT getOrientation() const { return getDirection().direction(); }
 
-	void _wrap_at_borders();
+	void wrap_at_borders();
 	void rotate(FLOAT angle) { if(angle != 0) t.rotate(angle); }
 
 	Transformation t;	// -> position, rotation and scale
@@ -153,7 +154,6 @@ public:
 
 	virtual void draw() const override;
 	virtual void move(FLOAT elapsed_time) override;
-	virtual bool overlap (const Point& pt) override;
 	virtual bool hit (const Point& p) override;
 
 	uint  size;				// size class: 1 .. 4
@@ -164,33 +164,42 @@ public:
 };
 
 
-class PlayerShip : public Object
+class Player : public Object
 {
 public:
-	PlayerShip();			// at (0,0)
-	~PlayerShip();
+	Player();			// at (0,0)
+	virtual ~Player() override;
 
 	virtual void draw() const override;
 	virtual void move(FLOAT elapsed_time) override;
 	virtual bool hit (const Point& p) override;
 
 	bool shield = false;
+	bool is_dead = false;
 	uint accelerating = 0;
 	FLOAT rotation = 0;		// rotational speed
 
 	void accelerate();
+
+	void accelerateShip();
+	void rotateRight();
+	void rotateLeft();
+	void activateShield(bool=1);
+	void shootCannon();
 };
 
-class AlienShip : public Object
+class Alien : public Object
 {
 public:
 	bool visible = false;
 	virtual void draw() const override;
 	virtual void move(FLOAT elapsed_time) override;
 	virtual bool hit (const Point& p) override;
-	//AlienShip(){printf("%s\n",__func__);}
-	AlienShip(const Point& position);
+	Alien(const Point& position);
+	virtual ~Alien() override;
 };
+
+extern Player* player;
 
 class Laseroids
 {
@@ -200,12 +209,13 @@ public:
 
 	void startNewGame() { state=START_NEW_GAME; }
 	static void runOneFrame();
-	static void accelerateShip();
-	static void rotateRight();
-	static void rotateLeft();
-	static void activateShield(bool=1);
-	static void shootCannon();
-	static bool isGameOver() { return state == IDLE; }
+
+	static void accelerateShip() { if (player) player->accelerateShip(); }
+	static void rotateRight()	 { if (player) player->rotateRight(); }
+	static void rotateLeft()	 { if (player) player->rotateLeft(); }
+	static void activateShield(bool f=1) { if (player) player->activateShield(f); }
+	static void shootCannon()	 { if (player) player->shootCannon(); }
+	static bool isGameOver()	 { return state == IDLE; }
 
 	enum State
 	{
@@ -226,6 +236,7 @@ private:
 	static void draw_all ();
 	static void draw_big_message(cstr text);
 	static void start_new_level(uint num_asteroids);
+	static void remove_bullets();
 };
 
 

@@ -39,21 +39,6 @@ int main()
 	load_sensor.init();
 
 
-	// count overruns
-	// it seems not possible to read back PIN_XY2_SYNC_XY directly:
-	const uint gpio = PIN_XY2_SYNC_XY_READBACK;
-	// Only PWM B pins (odd pin numbers) can be used as inputs:
-	assert(pwm_gpio_to_channel(gpio) == PWM_CHAN_B);
-	const uint slice_num = pwm_gpio_to_slice_num(gpio);
-
-	// configure the PWM for counter mode:
-	pwm_config cfg = pwm_get_default_config();
-	pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
-	pwm_init(slice_num, &cfg, true);
-	gpio_set_function(gpio, GPIO_FUNC_PWM);
-	gpio_set_dir(gpio,GPIO_IN);
-
-	int overruns = 0;	// seen so far
 
 
 	printf("\nLasteroids - Asteroids on LaserScanner\n");
@@ -115,7 +100,6 @@ int main()
 	xy2.init();
 	xy2.start();
 
-
 	FLOAT w = SCANNER_WIDTH * FLOAT(size) / 100;
 	FLOAT h = w;
 	Rect bbox{h/2, -w/2, -h/2, w/2};
@@ -155,10 +139,9 @@ int main()
 			FLOAT min,avg,max;
 			static constexpr FLOAT r=0.5;
 
-			if (uint16 d = uint16(pwm_get_counter(slice_num) - overruns))
+			if (uint16 d = xy2.getUnderruns())
 			{
 				printf("***OVERRUN***: %u frames\n", d);
-				overruns += d;
 			}
 			else if (L.adc_errors)
 			{

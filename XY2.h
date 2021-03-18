@@ -146,6 +146,11 @@ public:
 	static constexpr uint led_core0_idle = LED_CORE0_IDLE;
 	static constexpr uint led_core1_idle = LED_CORE1_IDLE;
 
+	// monitoring:
+	static constexpr uint pin_sync_xy_readback = PIN_XY2_SYNC_XY_READBACK;
+	static uint pwm_slice_num;
+	static int  pwm_underruns;
+
 	static uint heart_beat_counter;
 	static uint heart_beat_state;
 
@@ -200,7 +205,8 @@ public:
 	static void transform (const Transformation& transformation);
 	static void transform (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy);
 
-
+	// Monitoring:
+	static uint16 getUnderruns();	// since last call
 
 
 private:

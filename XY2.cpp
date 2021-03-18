@@ -15,6 +15,7 @@
 #include "cdefs.h"
 #include "XY2.h"
 #include "XY2-100.pio.h"
+#include "hardware/pwm.h"
 
 
 //static inline FLOAT sin (FLOAT a) { return sinf(a); }
@@ -57,6 +58,9 @@ Transformation XY2::transformation1;		// transformation used by core1
 Transformation XY2::transformation_stack[8];// transformation used by core0 and push stack
 uint XY2::transformation_stack_index = 0;
 static constexpr uint transformation_stack_mask = NELEM(XY2::transformation_stack) - 1;
+uint XY2::pwm_slice_num;
+int XY2::pwm_underruns;
+
 
 static bool core1_running = false;
 #define c2c_syncflag 0xf287affe
@@ -528,9 +532,34 @@ void XY2::init()
 	// final configuration of GPIOs:
 	gpio_set_outover(pin_laser,GPIO_OVERRIDE_INVERT); 		// invert output: '1' = ON => pin low
 
+	// count underruns:
+	// => setup a counter to count pulses on PIN_XY2_SYNC_XY
+	// which should be high all the time but is low on fifo empty state.
+	// it seems not possible to read back PIN_XY2_SYNC_XY directly:
+	const uint gpio = pin_sync_xy_readback;
+	// Only PWM B pins (odd pin numbers) can be used as inputs:
+	assert(pwm_gpio_to_channel(gpio) == PWM_CHAN_B);
+	pwm_slice_num = pwm_gpio_to_slice_num(gpio);
+
+	// configure the PWM for counter mode:
+	pwm_config cfg = pwm_get_default_config();
+	pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
+	pwm_init(pwm_slice_num, &cfg, true);
+	gpio_set_function(gpio, GPIO_FUNC_PWM);
+	gpio_set_dir(gpio,GPIO_IN);
+	pwm_underruns = pwm_get_counter(pwm_slice_num);
+
 	// misc.:
 	vt_init_vector_font();
 }
+
+uint16 XY2::getUnderruns()
+{
+	int d = pwm_get_counter(pwm_slice_num) - pwm_underruns;
+	pwm_underruns += d;
+	return uint16(d);
+}
+
 
 
 void XY2::start()

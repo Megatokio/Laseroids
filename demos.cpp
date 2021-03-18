@@ -16,11 +16,22 @@ static const FLOAT pi = FLOAT(3.1415926538);
 #ifdef XY2_IMPLEMENT_CHECKER_BOARD_DEMO
 void drawCheckerBoard (const Rect& bbox, uint count, const LaserSet& set) // core0
 {
+	// mark bottom left (starting point of the adjacent lines):
+	const FLOAT f9 = FLOAT(0.9);
+	const FLOAT f7 = FLOAT(0.7);
+	const FLOAT x = bbox.left;
+	const FLOAT y = bbox.bottom;
+	Point ecke[3] = { {x*f7,y*f9}, {x*f9,y*f9}, {x*f9,y*f7} };
+	XY2::drawPolyLine(3,ecke,slow_straight);
+
+	// horizontal lines:
 	for (uint i=0; i<=count; i++)
 	{
 		FLOAT y = bbox.bottom + bbox.height() * FLOAT(i) / FLOAT(count);
 		XY2::drawLine(Point(i & 1 ? bbox.right : bbox.left, y), Point(i & 1 ? bbox.left : bbox.right, y), set);
 	}
+
+	// vertical lines:
 	for (uint i=0; i<=count; i++)
 	{
 		FLOAT x = bbox.left + bbox.width() * FLOAT(i) / FLOAT(count);

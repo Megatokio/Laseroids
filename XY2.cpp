@@ -60,12 +60,23 @@ uint XY2::transformation_stack_index = 0;
 static constexpr uint transformation_stack_mask = NELEM(XY2::transformation_stack) - 1;
 uint XY2::pwm_slice_num;
 int XY2::pwm_underruns;
+static uint laser_delay_queue[16] = {0};
+static uint laser_delay_size = LASER_QUEUE_DELAY;
+static uint laser_delay_index = 0;
+static_assert(LASER_QUEUE_DELAY <= NELEM(laser_delay_queue),"");
 
 
 static bool core1_running = false;
 #define c2c_syncflag 0xf287affe
 
 
+// store new value in laser_delay_queue[] and return old value
+uint XY2::delayed_laser_value (uint value)
+{
+	if (laser_delay_index >= laser_delay_size) laser_delay_index = 0;
+	std::swap(value,laser_delay_queue[laser_delay_index++]);
+	return value;
+}
 
 // core0: push to laser_queue:
 void XY2::moveTo (const Point& p)

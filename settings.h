@@ -54,10 +54,11 @@ constexpr FLOAT SCANNER_MAX_SPEED	= SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DA
 
 
 // Laser settings
-constexpr uint LASER_ON_DELAY = 6;		// how many steps before switching laser ON
-constexpr uint LASER_OFF_DELAY = 10; 	// how many steps before switching laser OFF
+constexpr uint LASER_QUEUE_DELAY = 14;	// delay for laser power values
+constexpr uint LASER_ON_DELAY = 0;		// how many steps before switching laser ON
+constexpr uint LASER_OFF_DELAY = 0; 	// how many steps before switching laser OFF
 constexpr uint LASER_MIDDLE_DELAY = 6; 	// how many steps to wait at poly line corners
-constexpr uint LASER_JUMP_DELAY = 6;	// after jump
+constexpr uint LASER_JUMP_DELAY = 20;	// after jump
 
 
 #define XY2_IMPLEMENT_ANALOGUE_CLOCK_DEMO

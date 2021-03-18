@@ -214,6 +214,7 @@ private:
 	static void worker();		// on core1
 
 	static void update_transformation ();
+	static uint delayed_laser_value (uint value);
 
 	static uint pio_avail() { return pio_sm_get_tx_fifo_level(pio,sm_x); }
 	static uint pio_free() { return 8 - pio_sm_get_tx_fifo_level(pio,sm_x);}
@@ -251,6 +252,7 @@ private:
 
 		pos0.x = x; x = minmax(-0x8000, x, 0x7fff);		// limiter: optional
 		pos0.y = y; y = minmax(-0x7fff, y, 0x8000);		// limiter: optional
+		laser = delayed_laser_value(laser);
 
 		pio_sm_put(pio, sm_x, 0x8000 + int(x));
 		pio_sm_put(pio, sm_y, 0x8000 - int(y));	// y inverted for pos. y axis

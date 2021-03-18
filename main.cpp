@@ -26,6 +26,8 @@ extern "C" {
 #include "OledDisplay.h"
 #include "AdcLoadSensor.h"
 
+const FLOAT pi = FLOAT(3.1415926538);
+
 
 int main()
 {
@@ -38,11 +40,11 @@ int main()
 	printf("init ADC\n");
 	load_sensor.init();
 
-
-
-
 	printf("\nLasteroids - Asteroids on LaserScanner\n");
 	//while(getchar()!=13);
+
+
+
 
 	char charbuffer[256] = "";
 	printf("please enter size (%%), HH:MM:SS, YYYY/MM/DD (all optional)\n> ");
@@ -85,6 +87,7 @@ int main()
 	rtc_set_datetime(&t);
 
 
+	// Lissajous Demo:
 	//int size  = parseInteger(m_conBuffer, idx, 5, 30, 100);
 	FLOAT fmin  = FLOAT(1.49);//parseFloat  (charbuffer, i, 0.95, 1.49, 10.05);
 	FLOAT fmax  = FLOAT(1.51);//parseFloat  (charbuffer, i, fmin, 1.51, 10.05);
@@ -92,165 +95,217 @@ int main()
 	FLOAT rots  = 5000;//parseInteger(charbuffer, i, 100, 5000, 1000000);
 	printf("Lissajous demo:\n");
 	printf("size=%i%%, fmin=%.3f, fmax=%.3f, steps/rot=%i, rots/sweep=%i\n", size,double(fmin),double(fmax),int(steps),int(rots));
+	LissajousData data(fmin, fmax, steps, rots);
 
 
 	printf("Starting XY2-100 interface\n");
-	printf("SCANNER_MAX_SPEED = %u\n", uint(SCANNER_MAX_SPEED));
 	XY2 xy2;
 	xy2.init();
 	xy2.start();
+
 
 	FLOAT w = SCANNER_WIDTH * FLOAT(size) / 100;
 	FLOAT h = w;
 	Rect bbox{h/2, -w/2, -h/2, w/2};
 
-	for (int i=0;i<10;i++)
-	{
-		//xy2.drawRect(bbox);
-		drawCheckerBoard(bbox, 4, fast_straight);
-	}
-
-
-	//bool led_on=0;
-	FLOAT rad = 0;
+	//FLOAT rad = 0;
 	//FLOAT sx=0,sy=0,dsx=0.003f;
 	//FLOAT px=0,py=0,dpx=0.0000002f;
-	const FLOAT pi = FLOAT(3.1415926538);
-	LissajousData data(fmin, fmax, steps, rots);
+
+
+	enum State
+	{
+		BOOT_GEOMETRY_TEST,
+		LASEROIDS_ANIMATION,
+		START_MENU,
+		CHECKERBOARD_DEMO,
+		CLOCK_DEMO,
+		LISSAJOUS_DEMO,
+		LASEROIDS_GAME,
+	};
+
+	State state = BOOT_GEOMETRY_TEST;
+	FLOAT state_countdown = 10;
+
+
+	uint32 time_last_run_us = time_us_32();
+	uint32 adc_last_time_us = time_last_run_us;
+	FLOAT rad = 0;	// => rotating demos
 
 
 	while (1)
 	{
-		//sleep_ms(125);
-		//gpio_put(LED_PIN, led_on=!led_on);
+		uint32 now_us = time_us_32();
+		FLOAT elapsed_time = min(now_us - time_last_run_us, uint32(100*1000)) * FLOAT(1e-6);
+		time_last_run_us = now_us;
+
+		// switch off underrun indicator:
 		gpio_put(LED_PIN, 0);
 
-		rtc_get_datetime(&t);
-		second = t.hour*60*60 + t.min*60 + t.sec;
-
-		static int adc_last_second=0;
-		static int id = 0;
-
-		if (second != adc_last_second)
+		// display load stats:
+		if ((now_us - adc_last_time_us) >= 1000*1000)
 		{
-			adc_last_second = second;
+			adc_last_time_us += 1000*1000;
 
-			#define L load_sensor
+			static int id = 0;
 			FLOAT min,avg,max;
 			static constexpr FLOAT r=0.5;
 
 			if (uint16 d = xy2.getUnderruns())
 			{
-				printf("***OVERRUN***: %u frames\n", d);
+				printf("***UNDERRUN***: %u data frames\n", d);
 			}
-			else if (L.adc_errors)
+			else if (load_sensor.adc_errors)
 			{
 				printf("ADC conversion error\n");
-				L.adc_errors = 0;
+				load_sensor.adc_errors = 0;
 			}
 			else
 			switch(id++)
 			{
 			case 0:
-			{
 				load_sensor.getCore0Load(min,avg,max);
 				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
 					   int(min+r), int(avg+r), int(max+r));
-			}	break;
+				break;
 			case 1:
-			{
 				load_sensor.getCore1Load(min,avg,max);
 				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
 					   int(min+r), int(avg+r), int(max+r));
-			}	break;
+				break;
 			case 2:
-			{
-				FLOAT temperature = load_sensor.getTemperature();
-				printf("temperature = %.1f°C\n", double(temperature));
-			}	break;
+				printf("temperature = %.1f°C\n", double(load_sensor.getTemperature()));
+				break;
 			default:
 				id=0;
 				break;
 			}
 		}
 
-		static int demo = 2;
-		int c = getchar_timeout_us(0);
-		if (c > 0)
+
+		switch(state)
 		{
-			if (c>='1' && c<='6')
+		case BOOT_GEOMETRY_TEST:
+		{
+			FLOAT w = SCANNER_WIDTH * FLOAT(size) / 100;
+			FLOAT h = w;
+			Rect bbox{h/2, -w/2, -h/2, w/2};
+
+			XY2::resetTransformation();
+			drawCheckerBoard(bbox, 4, fast_straight);
+
+			if (--state_countdown <= 0)
 			{
-				demo = c-'0';
-				XY2::resetTransformation();
-				if (demo==6) { laseroids.startNewGame(); }
+				state = LASEROIDS_ANIMATION;
 			}
-			else if (c=='?')
+			continue;
+		}
+		case LASEROIDS_ANIMATION:
+		{
+			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
+
+			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
+			//xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
+			//xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
+			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			continue;
+		}
+		case START_MENU:
+		{
+			Transformation t{350,350,0,0,0,0};
+			xy2.setTransformation(t);
+			xy2.printText(Point(-30,+20),1,1,"1 Start",false,fast_straight,fast_rounded);
+			xy2.printText(Point(-30,+10),1,1,"2 HiScores",false,fast_straight,fast_rounded);
+			xy2.printText(Point(-30, 0),1,1,"3 Options",false,fast_straight,fast_rounded);
+			xy2.printText(Point(-30,-10),1,1,"4-6 Demos",false,fast_straight,fast_rounded);
+			xy2.printText(Point(-30,-20),1,1,"9 Stats",false,fast_straight,fast_rounded);
+			xy2.resetTransformation();
+
+			int c = getchar_timeout_us(0);
+			switch(c)
 			{
-				printf("1 checkerboard\n");
-				printf("2 clock\n");
-				printf("3 lissajous\n");
-				printf("4,5 title\n");
-				printf("6 Laseroids\n");
-				printf("@ reset as USB stick\n");
-			}
-			else if (c=='@')	// reboot to BOOTSEL mode (USB)
-			{
+			case '1':	// start game
+				laseroids.startNewGame();
+				state = LASEROIDS_GAME;
+				continue;
+			case '2':	// hiscores
+				//TODO
+				continue;
+			case '3':	// Options
+				//TODO
+				continue;
+			case '4':	// Checkerboard
+				state = CHECKERBOARD_DEMO;
+				continue;
+			case '5':	// Clock
+				state = CLOCK_DEMO;
+				continue;
+			case '6':	// Lissajous
+				state = LISSAJOUS_DEMO;
+				continue;
+			case '9':	// show stats
+				//TODO
+				continue;
+			case '@':	// reboot to BOOTSEL mode (USB)
 				reset_usb_boot(25,0);
 			}
-			else if (demo == 6)	// Laseroids
-			{
-				while(getchar_timeout_us(0)>=0){}
-				switch(c)
-				{
-				case 'o':
-					laseroids.rotateLeft();
-					break;
-				case 'p':
-					laseroids.rotateRight();
-					break;
-				case 'q':
-					laseroids.accelerateShip();
-					break;
-				case ' ':
-					laseroids.shootCannon();
-					break;
-				case 'a':
-					laseroids.activateShield();
-					break;
-				}
-			}
+			continue;
 		}
-
-		xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
-		//xy2.setShear(sx,sy); sx+=dsx; if(sx>=0.5f || sx<=-0.5f) dsx *= -1;
-		//xy2.setProjection(px,py); px+=dpx; if(px>0.00003f || px<-0.00003f) dpx *= -1;
-
-		switch(demo)
+		case CHECKERBOARD_DEMO:
 		{
-		case 1:
+			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
+
 			drawCheckerBoard(bbox, 4, fast_straight);
-			break;
-		case 2:
-			drawClock (bbox, uint(second), slow_straight, fast_rounded);
-			break;
-		case 3:
-			drawLissajous (w,h, data, fast_rounded);
-			break;
-		case 4:
-			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
-			//xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true);
-			break;
-		case 5:
-			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
-			xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
-			break;
-		case 6:
-			laseroids.runOneFrame();
-			if (laseroids.isGameOver()) laseroids.startNewGame();
-			break;
+			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			continue;
 		}
-	}
-}
+		case CLOCK_DEMO:
+		{
+			rtc_get_datetime(&t);
+			second = t.hour*60*60 + t.min*60 + t.sec;
+
+			drawClock (bbox, uint(second), slow_straight, fast_rounded);
+			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			continue;
+		}
+		case LISSAJOUS_DEMO:
+		{
+			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
+
+			drawLissajous (w,h, data, fast_rounded);
+			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			continue;
+		}
+		case LASEROIDS_GAME:
+		{
+			int c = getchar_timeout_us(0);
+			while(getchar_timeout_us(0)>=0){}
+			switch(c)
+			{
+			case 'o':
+				laseroids.rotateLeft();
+				break;
+			case 'p':
+				laseroids.rotateRight();
+				break;
+			case 'q':
+				laseroids.accelerateShip();
+				break;
+			case ' ':
+				laseroids.shootCannon();
+				break;
+			case 'a':
+				laseroids.activateShield();
+				break;
+			}
+
+			laseroids.runOneFrame();
+			if (laseroids.isGameOver()) { state = START_MENU; }
+			continue;
+		}
+		} // switch(state)
+	} // while(1)
+} // main()
 
 
 

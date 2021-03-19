@@ -17,6 +17,7 @@ add_executable(Laseroids
 	AdcLoadSensor.cpp
 	FlashDrive.cpp
 	Laseroids.cpp
+	HiScore.cpp
 	XY2.cpp
 	main.cpp
 	)

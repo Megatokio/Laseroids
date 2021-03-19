@@ -25,8 +25,11 @@ extern "C" {
 #include "Laseroids.h"
 #include "OledDisplay.h"
 #include "AdcLoadSensor.h"
+#include "FlashDrive.h"
+#include "HiScore.h"
 
 const FLOAT pi = FLOAT(3.1415926538);
+static HiScores hiscores;
 
 
 int main()
@@ -34,16 +37,18 @@ int main()
 	stdio_init_all();
 	gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN,0);
 
+	printf("\nLasteroids - Asteroids on LaserScanner\n");
+	//while(getchar()!=13);
+
 	printf("init OLED display\n");
 	oled.init();
 
 	printf("init ADC\n");
 	load_sensor.init();
 
-	printf("\nLasteroids - Asteroids on LaserScanner\n");
-	//while(getchar()!=13);
-
-
+	printf("read hiscores\n");
+	uint err = hiscores.readFromFlash();
+	if(err) printf("failed with error %u\n",err);
 
 
 	char charbuffer[256] = "";
@@ -70,21 +75,21 @@ int main()
 	int month  = parseInteger(charbuffer, i, 1,  7, 12);
 	int day    = parseInteger(charbuffer, i, 1, 20, 31);
 
-
-	// Start on Friday 5th of June 2020 15:45:00
-	datetime_t t = {
+	datetime_t t =
+	{
 			.year  = int16(year),
-			.month = int8(month),
+			.month = int8(month),	// 1..12
 			.day   = int8(day),
-			.dotw  = 0,             // 0 is Sunday. TODO...
+			.dotw  = 0,             // day of the week: 0 is Sunday. TODO...
 			.hour  = int8(hour),
 			.min   = int8(minute),
 			.sec   = int8(second)
 	};
 
-	// Start the RTC
+	printf("start RTC\n");
 	rtc_init();
-	rtc_set_datetime(&t);
+	bool f = rtc_set_datetime(&t);
+	if (!f) printf("failded. illegal date.\n");
 
 
 	// Lissajous Demo:
@@ -117,11 +122,13 @@ int main()
 	{
 		BOOT_GEOMETRY_TEST,
 		LASEROIDS_ANIMATION,
-		START_MENU,
+		MAIN_MENU,
 		CHECKERBOARD_DEMO,
 		CLOCK_DEMO,
 		LISSAJOUS_DEMO,
 		LASEROIDS_GAME,
+		LASEROIDS_NEW_HIGHSCORE,	// big message
+		LASEROIDS_ENTER_HISCORE,
 	};
 
 	State state = BOOT_GEOMETRY_TEST;
@@ -130,8 +137,10 @@ int main()
 
 	uint32 time_last_run_us = time_us_32();
 	uint32 adc_last_time_us = time_last_run_us;
-	FLOAT rad = 0;	// => rotating demos
+	FLOAT rad = 0;		// => rotating demos
 
+	HiScore hiscore;	// hiscore input
+	int idx = 0;		// hiscore input
 
 	while (1)
 	{
@@ -197,20 +206,23 @@ int main()
 			if (--state_countdown <= 0)
 			{
 				state = LASEROIDS_ANIMATION;
+				state_countdown = FLOAT(1e30);
 			}
 			continue;
 		}
 		case LASEROIDS_ANIMATION:
 		{
-			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
+			xy2.setRotation(-rad); rad += pi/180; if (rad>=2*pi) rad -= 2*pi;
+			//xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
+			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
+			xy2.printText(Point(0,-h/10),w/100,h/80,"on your Laser Scanner!",true,fast_straight,fast_rounded);
 
-			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
-			//xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
-			//xy2.printText(Point(0,-h/10),w/100,h/80,"Asteroids on a Laser Scanner!",true,fast_straight,fast_rounded);
-			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			if (getchar_timeout_us(0) > 0) state = MAIN_MENU;
+			state_countdown -= elapsed_time;
+			if (rad<=pi/180 && state_countdown <= 0) state = MAIN_MENU;
 			continue;
 		}
-		case START_MENU:
+		case MAIN_MENU:
 		{
 			Transformation t{350,350,0,0,0,0};
 			xy2.setTransformation(t);
@@ -256,7 +268,7 @@ int main()
 			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
 
 			drawCheckerBoard(bbox, 4, fast_straight);
-			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			if (getchar_timeout_us(0) > 0) { state = MAIN_MENU; }
 			continue;
 		}
 		case CLOCK_DEMO:
@@ -265,7 +277,7 @@ int main()
 			second = t.hour*60*60 + t.min*60 + t.sec;
 
 			drawClock (bbox, uint(second), slow_straight, fast_rounded);
-			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			if (getchar_timeout_us(0) > 0) { state = MAIN_MENU; }
 			continue;
 		}
 		case LISSAJOUS_DEMO:
@@ -273,7 +285,7 @@ int main()
 			xy2.setRotation(-rad); rad += pi/180; if (rad>pi) rad -= 2*pi;
 
 			drawLissajous (w,h, data, fast_rounded);
-			if (getchar_timeout_us(0) > 0) { state = START_MENU; }
+			if (getchar_timeout_us(0) > 0) { state = MAIN_MENU; }
 			continue;
 		}
 		case LASEROIDS_GAME:
@@ -300,12 +312,167 @@ int main()
 			}
 
 			laseroids.runOneFrame();
-			if (laseroids.isGameOver()) { state = START_MENU; }
+			if (laseroids.isGameOver())
+			{
+				if (hiscores.isHiscore(laseroids.getScore()))
+				{
+					state = LASEROIDS_NEW_HIGHSCORE;
+					state_countdown = FLOAT(2.0);
+				}
+				else
+				{
+					state = MAIN_MENU;
+				}
+			}
 			continue;
 		}
+		case LASEROIDS_NEW_HIGHSCORE:
+		{
+			XY2::resetTransformation();
+			XY2::printText(Point(0,0),SCANNER_WIDTH/50,SCANNER_WIDTH/40,"HISCORE!",true);
+
+			state_countdown -= elapsed_time;
+			if (state_countdown <= 0)
+			{
+				uint16 score = uint16(laseroids.getScore());
+				uint16 secs  = uint16(laseroids.getPlaytime());
+				rtc_get_datetime(&t);
+				new(&hiscore) HiScore("",score,secs,t);
+				idx = 0;
+				state = LASEROIDS_ENTER_HISCORE;
+			}
+			continue;
+		}
+		case LASEROIDS_ENTER_HISCORE:
+		{
+			static constexpr int name_len = NELEM(hiscore.name);
+
+			#define SIZE SCANNER_WIDTH
+
+			static constexpr FLOAT ch0 = SIZE/80;	// char height for 1px (char height = 8px)
+			static constexpr FLOAT cw0 = SIZE/90;	// char width  for 1px (char height = 8px)
+			XY2::resetTransformation();
+			XY2::printText(Point(0, ch0), cw0, ch0, "Your Name:", true);
+
+			static constexpr FLOAT ch = SIZE/100;	// char height for 1px (char height = 8px)
+			static constexpr FLOAT cw = SIZE/100;	// char width  for 1px (char height = 8px)
+
+			idx = (idx+name_len) % name_len;
+
+			// draw underscores:
+			for (int i=name_len; i--; )
+			{
+				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
+				Point a{pos.x-3*cw,pos.y-2*ch};
+				Point e{pos.x+3*cw,pos.y-2*ch};
+				if (i==idx)
+				{
+					static int flicker = 0;
+					if (++flicker & 3)
+					{
+						XY2::drawLine(e,a,slow_straight); a.y = e.y += ch/8;
+						XY2::drawLine(a,e,fast_straight); a.y = e.y += ch/8;
+						XY2::drawLine(e,a,slow_straight);
+					}
+				}
+				else
+				{
+					XY2::drawLine(e,a,fast_straight);
+				}
+			}
+
+			// print name so far:
+			for (int i=0; i<name_len; i++)
+			{
+				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
+				char text[2] = {hiscore.name[i],0};
+				XY2::printText(pos, cw, ch, text, true);
+				if (i==idx)
+				{
+					pos.x += cw/8;
+					pos.y += ch/8;
+					XY2::printText(pos, cw, ch, text, true);
+				}
+			}
+
+			// read char from player and process it:
+			static constexpr int ESC = 27;
+			int c;
+			while ((c = getchar_timeout_us(0)) >= 0)
+			{
+				if (c>='a' && c<='z') c += 'A'-'a';
+				if ((c>='A' && c<='Z') || (c>='0' && c<= '9') || c=='.' || c=='-' || c==' ')
+				{
+					hiscore.name[idx++] = char(c);
+				}
+				else if (c==ESC)
+				{
+					esc: c = getchar_timeout_us(5000);
+
+					if (c=='[')
+					{
+						c = getchar_timeout_us(5000);
+						if (c=='D') { idx--; }
+						else if (c=='C') { idx++; }
+						else if (c==ESC) goto esc;
+						else if (c>0) printf("unhandled escape sequence: ESC '[' 0x%02x\n",c);
+					}
+					else if (c==ESC) goto esc;
+					else if (c>0) printf("unhandled escape sequence: ESC 0x%02x\n",c);
+				}
+				else if (c==127)
+				{
+					hiscore.name[idx] = ' ';
+					idx--;
+				}
+				else if (c==8)
+				{
+					idx--;
+				}
+				else if (c==13)
+				{
+					hiscores.addHiscore(hiscore);
+					xy2.suspend();
+					uint err = Flash::writeFlashData(&hiscores);
+					xy2.resume();
+					if (err) printf("writing hiscores to flash failed: %u\n", err);
+					state = LASEROIDS_ANIMATION;
+					state_countdown = FLOAT(4.0);
+					break;
+				}
+				else if (c>0)
+				{
+					printf("unhandled char: 0x%02x ('%c')\n", c, c>=32&&c<127?c:' ');
+				}
+			}
+			continue;
+		} //case
 		} // switch(state)
 	} // while(1)
 } // main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

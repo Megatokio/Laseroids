@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pico/stdlib.h"
-#include "FlashDrive.h"
 
 
 Laseroids laseroids;
@@ -55,64 +54,6 @@ static uint level;
 
 Laseroids::State Laseroids::state = Laseroids::IDLE;
 static FLOAT state_countdown;
-
-
-// ********** Hiscore Table ****************
-
-struct HiScore
-{
-	char   name[12]{"Megatokio"};
-	uint   score = 100;
-	uint   seconds = 0;
-	uint16 hour = 0, minute = 0;	// when
-
-	HiScore()=default;
-	HiScore(cstr nam, uint score, uint secs, uint16 hr=0, uint16 min=0)
-		: score(score),seconds(secs),hour(hr),minute(min) { memcpy(name,nam,sizeof(name)); }
-};
-
-struct HiScores
-{
-	uint magic = 1734645172;
-	static constexpr uint nelem = (Flash::page_size-sizeof(magic))/sizeof(HiScore);
-	HiScore hiscores[nelem];
-
-	bool is_hiscore(uint score) { return score > hiscores[nelem-1].score; }
-
-	void add_hiscore (cstr name, uint score, uint seconds, uint16 hour=12, uint16 minute=0)
-	{
-		// is it a high score?
-		if (score <= hiscores[nelem-1].score) return;
-
-		// trim name:
-		while (*name==' ') name++;
-		for (ptr p = strchr(name,0); --p>=name && *p==' ';) { *p=0; }
-
-		// if player already has a hiscore then update this:
-		for (uint i=0; i<nelem; i++)
-		{
-			if (strcmp(name,hiscores[i].name)) continue; // not this player
-			if (score <= hiscores[i].score) return;		 // old hiscore is better
-			break; // => update with current meta data
-		}
-
-		// find position in table and shift lower scores down:
-		uint i = nelem-1;
-		while (i && score > hiscores[i-1].score)
-		{
-			hiscores[i] = hiscores[i-1];
-			i--;
-		}
-
-		// add it:
-		if (*name==0) name = "anonymous";
-		new(&hiscores[i]) HiScore(name,score,seconds,hour,minute);
-		printf("new hiscore added: %s %u in %usec at %u:%02u\n",name,score,seconds,hour,minute);
-	}
-
-};
-
-static HiScores hiscores;
 
 
 
@@ -1012,128 +953,8 @@ void Laseroids::runOneFrame()
 		draw_big_message("GAME OVER");
 
 		state_countdown -= elapsed_time;
-		if (state_countdown > 0) return;
-
-		if (hiscores.is_hiscore(score->score))
-		{
-			state = NEW_HIGHSCORE;
-			state_countdown = FLOAT(2.0);
-		}
-		else
-		{
-			state = IDLE;
-		}
+		if (state_countdown <= 0) state = IDLE;
 		return;
-	}
-	case NEW_HIGHSCORE:
-	{
-		draw_big_message("HISCORE!");
-
-		state_countdown -= elapsed_time;
-		if (state_countdown <= 0) state = ENTER_NAME;
-		return;
-	}
-	case ENTER_NAME:
-	{
-		static constexpr int name_len = NELEM(HiScore::name)-1;
-		char name[name_len+1] = {0};
-		int idx = 0;
-
-		for(;;)
-		{
-			static constexpr FLOAT ch0 = SIZE/80;	// char height for 1px (char height = 8px)
-			static constexpr FLOAT cw0 = SIZE/90;	// char width  for 1px (char height = 8px)
-			XY2::resetTransformation();
-			XY2::printText(Point(0, ch0), cw0, ch0, "Your Name:", true);
-
-			static constexpr FLOAT ch = SIZE/100;	// char height for 1px (char height = 8px)
-			static constexpr FLOAT cw = SIZE/100;	// char width  for 1px (char height = 8px)
-
-			idx = (idx+name_len) % name_len;
-
-			// draw underscores:
-			for (int i=name_len; i--; )
-			{
-				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
-				Point a{pos.x-3*cw,pos.y-2*ch};
-				Point e{pos.x+3*cw,pos.y-2*ch};
-				if (i==idx)
-				{
-					static int flicker = 0;
-					if (++flicker & 3)
-					{
-						XY2::drawLine(e,a,slow_straight); a.y = e.y += ch/8;
-						XY2::drawLine(a,e,fast_straight); a.y = e.y += ch/8;
-						XY2::drawLine(e,a,slow_straight);
-					}
-				}
-				else
-				{
-					XY2::drawLine(e,a,fast_straight);
-				}
-			}
-
-			// print name so far:
-			for (int i=0; i<name_len; i++)
-			{
-				Point pos{((i*2-name_len+1)*8/2)*cw, -12*ch};
-				char text[2] = {name[i],0};
-				XY2::printText(pos, cw, ch, text, true);
-				if (i==idx)
-				{
-					pos.x += cw/8;
-					pos.y += ch/8;
-					XY2::printText(pos, cw, ch, text, true);
-				}
-			}
-
-			// read char from player and process it:
-			static constexpr int ESC = 27;
-			int c;
-			while ((c = getchar_timeout_us(0)) >= 0)
-			{
-				if (c>='a' && c<='z') c += 'A'-'a';
-				if ((c>='A' && c<='Z') || (c>='0' && c<= '9') || c=='.' || c=='-' || c==' ')
-				{
-					name[idx++] = char(c);
-				}
-				else if (c==ESC)
-				{
-					esc: c = getchar_timeout_us(5000);
-
-					if (c=='[')
-					{
-						c = getchar_timeout_us(5000);
-						if (c=='D') { idx--; }
-						else if (c=='C') { idx++; }
-						else if (c==ESC) goto esc;
-						else if (c>0) printf("unhandled escape sequence: ESC '[' 0x%02x\n",c);
-					}
-					else if (c==ESC) goto esc;
-					else if (c>0) printf("unhandled escape sequence: ESC 0x%02x\n",c);
-				}
-				else if (c==127)
-				{
-					name[idx] = ' ';
-					idx--;
-				}
-				else if (c==8)
-				{
-					idx--;
-				}
-				else if (c==13)
-				{
-					uint seconds = now - time_start_of_game_us;
-					hiscores.add_hiscore(name,score->score,seconds);
-					state = IDLE;
-					return;
-				}
-				else if (c>0)
-				{
-					printf("unhandled char: 0x%02x ('%c')\n", c, c>=32&&c<127?c:' ');
-				}
-			}
-		}
 	}
 	default:
 		printf("internal error #712\n");
@@ -1142,6 +963,17 @@ void Laseroids::runOneFrame()
 	}
 }
 
+
+
+uint Laseroids::getScore()
+{
+	return score ? score->score : 0;
+}
+
+FLOAT Laseroids::getPlaytime()
+{
+	return (time_last_run_us - time_start_of_game_us) * FLOAT(1e-6);
+}
 
 
 

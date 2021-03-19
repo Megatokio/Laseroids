@@ -199,7 +199,9 @@ public:
 	virtual ~Alien() override;
 };
 
+
 extern Player* player;
+
 
 class Laseroids
 {
@@ -216,6 +218,8 @@ public:
 	static void activateShield(bool f=1) { if (player) player->activateShield(f); }
 	static void shootCannon()	 { if (player) player->shootCannon(); }
 	static bool isGameOver()	 { return state == IDLE; }
+	static uint getScore();
+	static FLOAT getPlaytime();
 
 	enum State
 	{
@@ -226,8 +230,6 @@ public:
 		LEVEL_COMPLETED,
 		RESPAWNING_LIFE,
 		GAME_OVER,
-		NEW_HIGHSCORE,
-		ENTER_NAME
 	};
 	static State state;
 

@@ -11,11 +11,12 @@
 //#include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "hardware/pio_instructions.h"
-//#include "pico/multicore.h"
+#include "pico/multicore.h"
 #include "cdefs.h"
 #include "XY2.h"
 #include "XY2-100.pio.h"
 #include "hardware/pwm.h"
+#include "hardware/sync.h"
 
 
 //static inline FLOAT sin (FLOAT a) { return sinf(a); }
@@ -66,8 +67,9 @@ static uint laser_delay_index = 0;
 static_assert(LASER_QUEUE_DELAY <= NELEM(laser_delay_queue),"");
 
 
-static bool core1_running = false;
-#define c2c_syncflag 0xf287affe
+static volatile bool core1_running = false;
+static volatile bool core1_suspended = false;
+#define c2c_syncflag  0xf287affe
 
 
 // store new value in laser_delay_queue[] and return old value
@@ -160,7 +162,7 @@ static uint vt_font_col1[256];		// index in vt_font_data[]
 static int8 vt_font_width[256];		// character print width (including +1 for line width but no spacing)
 
 
-void vt_init_vector_font()
+static void vt_init_vector_font()
 {
 	for (uint i = 0, c=' '; c<NELEM(vt_font_col1) && i<NELEM(vt_font_data); c++)
 	{
@@ -359,6 +361,28 @@ void XY2::start_core1()
 	if (f != c2c_syncflag) { printf("core%i: wrong flag\n",0); for(;;); }
 	multicore_fifo_push_blocking(c2c_syncflag);
 	printf("core1 up and running\n");
+	core1_suspended = false;
+}
+
+static volatile bool core1_suspend = false;
+
+void __no_inline_not_in_flash_func(suspend_no_flash) ()
+{
+	core1_suspended = true;
+	do { __wfe(); } while (core1_suspend);
+	core1_suspended = false;
+}
+
+void XY2::suspend()
+{
+	core1_suspend = true;
+	do { __sev(); } while (!core1_suspended);
+}
+
+void XY2::resume()
+{
+	core1_suspend = false;
+	do { __sev(); } while (core1_suspended);
 }
 
 
@@ -372,6 +396,13 @@ void XY2::worker()
 
 	for(;;)
 	{
+		if (core1_suspend)
+		{
+			uint old_state = save_and_disable_interrupts();
+			suspend_no_flash();
+			restore_interrupts(old_state);
+		}
+
 		DrawCmd cmd = laser_queue.pop().cmd;
 
 		switch(cmd)
@@ -570,8 +601,6 @@ uint16 XY2::getUnderruns()
 	pwm_underruns += d;
 	return uint16(d);
 }
-
-
 
 void XY2::start()
 {

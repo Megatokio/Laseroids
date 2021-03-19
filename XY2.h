@@ -164,6 +164,8 @@ public:
 	XY2(){}
 	static void init();
 	static void start();
+	static void suspend();
+	static void resume();
 
 	// core0: push to laser_queue:
 	static void moveTo (const Point& dest);

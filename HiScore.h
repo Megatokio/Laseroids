@@ -23,6 +23,9 @@ struct HiScore
 	HiScore()=default;
 	HiScore(cstr nam, uint16 score, uint16 secs, int16 y, int8 m, int8 d, int8 hr, int8 min);
 	HiScore(cstr nam, uint16 score, uint16 secs, const datetime_t&);
+
+	void print() const { printf("%4u: %10s in%5u secs  %4u-%02u-%02u %02u:%02u\n",
+								score,name,playtime,year,month,day,hour,minute); }
 };
 
 struct HiScores : public Flash::FlashData
@@ -41,6 +44,8 @@ struct HiScores : public Flash::FlashData
 
 	Flash::ErrNo readFromFlash();
 	Flash::ErrNo writeToFlash();	// caller must stop core1!
+
+	void print() const;
 
 private:
 	bool is_valid();

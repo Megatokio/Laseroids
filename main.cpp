@@ -49,6 +49,7 @@ int main()
 	printf("read hiscores\n");
 	uint err = hiscores.readFromFlash();
 	if(err) printf("failed with error %u\n",err);
+	else hiscores.print();
 
 
 	char charbuffer[256] = "";
@@ -59,7 +60,7 @@ int main()
 	{
 		int c = getchar_timeout_us(60*1000*1000);
 		if (c<0 || c==13) break;
-		if (c=='@')	{ reset_usb_boot(25,0); }
+		if (c=='@')	{ reset_usb_boot(1<<25,0); }
 		if ((c==8 || c==127) && i>0) { printf("\x08 \x08"); i--; continue; }
 		if (i<NELEM(charbuffer)-1) { putchar(c); charbuffer[i++] = char(c); }
 	}
@@ -215,7 +216,7 @@ int main()
 			xy2.setRotation(-rad); rad += pi/180; if (rad>=2*pi) rad -= 2*pi;
 			//xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true);
 			xy2.printText(Point(0,0),w/25,h/20,"LASEROIDS!",true,fast_straight,fast_rounded);
-			xy2.printText(Point(0,-h/10),w/100,h/80,"on your Laser Scanner!",true,fast_straight,fast_rounded);
+			xy2.printText(Point(0,-h/8),w/100,h/80,"on your Laser Scanner!",true,fast_straight,fast_rounded);
 
 			if (getchar_timeout_us(0) > 0) state = MAIN_MENU;
 			state_countdown -= elapsed_time;
@@ -259,7 +260,7 @@ int main()
 				//TODO
 				continue;
 			case '@':	// reboot to BOOTSEL mode (USB)
-				reset_usb_boot(25,0);
+				reset_usb_boot(1<<25,0);
 			}
 			continue;
 		}
@@ -436,6 +437,7 @@ int main()
 					uint err = Flash::writeFlashData(&hiscores);
 					xy2.resume();
 					if (err) printf("writing hiscores to flash failed: %u\n", err);
+					else printf("hiscore written to flash\n");
 					state = LASEROIDS_ANIMATION;
 					state_countdown = FLOAT(4.0);
 					break;

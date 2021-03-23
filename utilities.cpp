@@ -90,3 +90,20 @@ FLOAT parseFloat(const char* bu, uint& i, FLOAT min, FLOAT dflt, FLOAT max)
 }
 
 
+int compare (const datetime_t& A, const datetime_t& B)
+{
+	// Compare two datetime_t
+	//  neg if A is before B
+	//  pos if B is before A
+	//  0 if same
+
+	#define test(N) if (A.N - B.N) return A.N - B.N
+	test(year);
+	test(month);
+	test(day);
+	test(hour);
+	test(min);
+	test(sec);
+	#undef test
+	return 0;
+}

@@ -84,4 +84,19 @@ extern class OledDisplay oled;
 #define OLED_HEIGHT		  64
 #define OLED_EXTERNAL_VCC false
 
+// RTC settings
+#define RTC_I2C_ADDR	 0x68
+#define RTC_I2C_PIN_SDA  2
+#define RTC_I2C_PIN_SCK  3
+#define RTC_I2C_PORT     i2c1
+
+// AT24C32 Flash (on RTC module)
+#define AT24C32_I2C_ADDR	0x57
+#define AT24C32_I2C_PIN_SDA RTC_I2C_PIN_SDA
+#define AT24C32_I2C_PIN_SCK RTC_I2C_PIN_SCK
+#define AT24C32_I2C_PORT    RTC_I2C_PORT
+
+
+
+
 

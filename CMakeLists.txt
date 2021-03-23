@@ -15,6 +15,7 @@ add_executable(Laseroids
 	ssd1306.cpp
 	OledDisplay.cpp
 	AdcLoadSensor.cpp
+	DS3231.cpp
 	FlashDrive.cpp
 	Laseroids.cpp
 	HiScore.cpp

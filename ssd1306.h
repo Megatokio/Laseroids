@@ -89,7 +89,7 @@ public:
 	SSD1306(u8 w, u8 h, u8 addr, bool extfont);
 	void writeln(char* v);
 	void print(const char* v);
-	void begin();
+	//void begin();
 	void init_i2c(i2c_inst* port, u8 sda_pin, u8 scl_pin);
 	void send(u8 v1, u8 v2);
 	void init_display();

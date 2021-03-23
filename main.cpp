@@ -27,17 +27,25 @@ extern "C" {
 #include "AdcLoadSensor.h"
 #include "FlashDrive.h"
 #include "HiScore.h"
+#include "DS3231.h"
 
-const FLOAT pi = FLOAT(3.1415926538);
+
+static constexpr int ESC = 27;
+static constexpr FLOAT pi = FLOAT(3.1415926538);
 static HiScores hiscores;
+static DS3231 rtc;
+static datetime_t t = {2000,1,1,1,12,0,0};
 
 
 int main()
 {
+	int err;
+
 	stdio_init_all();
 	gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN,0);
 
-	printf("\nLasteroids - Asteroids on LaserScanner\n");
+	static char stars[] = "*******************************************";
+	printf("\n%s\n* Laseroids - Asteroids on a LaserScanner *\n%s\n\n",stars,stars);
 	//while(getchar()!=13);
 
 	printf("init OLED display\n");
@@ -46,51 +54,100 @@ int main()
 	printf("init ADC\n");
 	load_sensor.init();
 
-	printf("read hiscores\n");
-	uint err = hiscores.readFromFlash();
-	if(err) printf("failed with error %u\n",err);
-	else hiscores.print();
+	printf("init external RTC\n");
+	//rtc.init_i2c();		same i2c bus as OLED
+	err = rtc.init_rtc();
+	if (err) printf("failed with error %u\n",err);
+	else
+	{
+		int osc = rtc.oscWasStopped();
+		if (osc<0) printf("reading oscillator stop flag failed\n");
+		else printf("datetime is %s\n", osc ? "*invalid*" : "valid");
+		err = rtc.readDate(t);
+		if (err) printf("reading current date failed with error %u\n", err);
+		//else printf("current date: %04u-%02u-%02u %02u:%02u:%02u\n",t.year,t.month,t.day,t.hour,t.min,t.sec);
+	}
 
+	char buffer[256] = "";
+	printf("please enter size (%%), YYYY/MM/DD, HH:MM:SS\n> ");
+	sprintf(buffer, " 30 %04u/%02u/%02u %02u:%02u:%02u",t.year,t.month,t.day,t.hour,t.min,t.sec);
+	uint inputlen = strlen(buffer);
+	printf("%s",buffer);
+	for (uint i=inputlen; i; i--) putchar(8);
 
-	char charbuffer[256] = "";
-	printf("please enter size (%%), HH:MM:SS, YYYY/MM/DD (all optional)\n> ");
-	uint i=0;
+	uint i = 0;
 	while(getchar_timeout_us(0)>=0){}
 	for(;;)
 	{
 		int c = getchar_timeout_us(60*1000*1000);
-		if (c<0 || c==13) break;
+	a:	if (c<0 || c==13) break;
 		if (c=='@')	{ reset_usb_boot(1<<25,0); }
-		if ((c==8 || c==127) && i>0) { printf("\x08 \x08"); i--; continue; }
-		if (i<NELEM(charbuffer)-1) { putchar(c); charbuffer[i++] = char(c); }
+		if ((c==8 || c==127) && i>0) { putchar(8); i--; continue; }
+		if (c==ESC)
+		{
+			c = getchar_timeout_us(1000*1000);
+			if (c!='[') goto a;
+			c = getchar_timeout_us(1000*1000);
+			switch(c)
+			{
+			case 'A': while (i) { putchar(8); i--; } continue;
+			case 'B': while (i<inputlen) { putchar(buffer[i++]); } continue;
+			case 'C': if (i<inputlen) { putchar(buffer[i++]); } continue;
+			case 'D': if (i) { putchar(8); i--; } continue;
+			default: goto a;
+			}
+		}
+		if (i<NELEM(buffer)-2)
+		{
+			putchar(c);
+			buffer[i++] = char(c);
+			if (i>inputlen) { inputlen = i; buffer[i] = 0; }
+		}
 	}
-	charbuffer[i] = 0;
 	putchar('\n');
 
 	i = 0;
-	int size   = parseInteger(charbuffer, i, 5, 30, 100);
-	int hour   = parseInteger(charbuffer, i, 0, 10, 23);
-	int minute = parseInteger(charbuffer, i, 0,  0, 59);
-	int second = parseInteger(charbuffer, i, 0,  0, 59);
-	int year   = parseInteger(charbuffer, i, 0, 2020, 2999);
-	int month  = parseInteger(charbuffer, i, 1,  7, 12);
-	int day    = parseInteger(charbuffer, i, 1, 20, 31);
+	int size   = parseInteger(buffer, i, 5, 30, 100);
+	int year   = parseInteger(buffer, i, 0, 2020, 2099);
+	int month  = parseInteger(buffer, i, 1,  7, 12);
+	int day    = parseInteger(buffer, i, 1, 20, 31);
+	int hour   = parseInteger(buffer, i, 0, 10, 23);
+	int minute = parseInteger(buffer, i, 0,  0, 59);
+	int second = parseInteger(buffer, i, 0,  0, 59);
 
-	datetime_t t =
+	datetime_t t_neu =
 	{
 			.year  = int16(year),
 			.month = int8(month),	// 1..12
 			.day   = int8(day),
-			.dotw  = 0,             // day of the week: 0 is Sunday. TODO...
+			.dotw  = 1,             // day of the week: TODO...
 			.hour  = int8(hour),
 			.min   = int8(minute),
 			.sec   = int8(second)
 	};
 
-	printf("start RTC\n");
+	if (t != t_neu)
+	{
+		t = t_neu;
+		printf("writing new datetime to RTC\n");
+		err = rtc.writeDate(t);
+		if (err) printf("failed with error %u\n", err);
+		else rtc.resStatus(rtc.OSF);
+	}
+
+
+	printf("start internal RTC\n");
 	rtc_init();
+	err = rtc.readDate(t);
+	if (err) t = t_neu;
 	bool f = rtc_set_datetime(&t);
-	if (!f) printf("failded. illegal date.\n");
+	if (!f) printf("failed. illegal date.\n");
+
+
+	printf("read hiscores\n");
+	err = hiscores.readFromFlash();
+	if (err) printf("failed with error %u\n",err);
+	else hiscores.print();
 
 
 	// Lissajous Demo:
@@ -180,11 +237,12 @@ int main()
 				break;
 			case 1:
 				load_sensor.getCore1Load(min,avg,max);
-				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
+				printf("load core1 = %i%% %i%% %i%% (min,avg,max)\n",
 					   int(min+r), int(avg+r), int(max+r));
 				break;
 			case 2:
 				printf("temperature = %.1f°C\n", double(load_sensor.getTemperature()));
+				printf("temperature = %.1f°C\n", double(rtc.getTemperature()));
 				break;
 			default:
 				id=0;
@@ -397,7 +455,6 @@ int main()
 			}
 
 			// read char from player and process it:
-			static constexpr int ESC = 27;
 			int c;
 			while ((c = getchar_timeout_us(0)) >= 0)
 			{

@@ -48,3 +48,12 @@ inline FLOAT rand (FLOAT min, FLOAT max)
 	return min + rand(max-min);
 }
 
+
+extern int compare (const datetime_t&, const datetime_t&);
+inline bool operator <  (const datetime_t& a, const datetime_t& b) { return compare(a,b) <  0; }
+inline bool operator >  (const datetime_t& a, const datetime_t& b) { return compare(a,b) >  0; }
+inline bool operator >= (const datetime_t& a, const datetime_t& b) { return compare(a,b) >= 0; }
+inline bool operator <= (const datetime_t& a, const datetime_t& b) { return compare(a,b) <= 0; }
+inline bool operator == (const datetime_t& a, const datetime_t& b) { return compare(a,b) == 0; }
+inline bool operator != (const datetime_t& a, const datetime_t& b) { return compare(a,b) != 0; }
+

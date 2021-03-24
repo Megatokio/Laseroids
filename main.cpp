@@ -353,6 +353,9 @@ int main()
 			while(getchar_timeout_us(0)>=0){}
 			switch(c)
 			{
+			case '@':
+				state = MAIN_MENU;
+				break;
 			case 'o':
 				laseroids.rotateLeft();
 				break;

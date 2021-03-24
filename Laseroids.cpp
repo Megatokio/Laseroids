@@ -47,7 +47,8 @@ static Lifes* lifes = nullptr;
 static Score* score = nullptr;
 Player* player = nullptr;
 static Alien* alien = nullptr;
-static uint num_asteroids;
+static uint num_asteroids = 0;
+static uint num_bullets = 0;
 static uint32 time_last_run_us;
 static uint32 time_start_of_game_us;
 static uint level;
@@ -79,14 +80,14 @@ static inline FLOAT dist (const Point& p1, const Point& p2)
 }
 static inline FLOAT dist (const IObject& o1, const IObject& o2)
 {
-	return dist(o1.last(),o2.first());
+	return dist(o1.last_point(),o2.first_point());
 }
 static inline FLOAT dist (const IObject* o1, const IObject* o2)
 {
-	return dist(o1->last(),o2->first());
+	return dist(o1->last_point(),o2->first_point());
 }
 
-IObject* DisplayList::_best_insertion_point (IObject* new_o)
+IObject* DisplayList::best_insertion_point (IObject* new_o)
 {
 	IObject* o = root;
 	FLOAT o_dist = FLOAT(1e30);
@@ -126,7 +127,7 @@ void DisplayList::remove (IObject* o)
 		iter = o->_prev;
 	}
 
-	o->_unlink();
+	o->unlink();
 }
 
 void DisplayList::add (IObject* o)
@@ -147,11 +148,11 @@ void DisplayList::add (IObject* o)
 
 	if (root->_next == root)
 	{
-		o->_link_behind(root);
+		o->link_behind(root);
 		return;
 	}
 
-	o->_link_behind(_best_insertion_point(o));
+	o->link_behind(best_insertion_point(o));
 }
 
 void DisplayList::add_left_of_iterator (IObject* new_o)
@@ -161,7 +162,7 @@ void DisplayList::add_left_of_iterator (IObject* new_o)
 	// if iterating down then this object will be returned next by this iteration
 
 	if (!new_o) return;
-	new_o->_link_behind(iter);
+	new_o->link_behind(iter);
 	iter = new_o;
 }
 
@@ -172,7 +173,7 @@ void DisplayList::add_right_of_iterator (IObject* new_o)
 	// if iterating down then this object will not be returned by this iteration
 
 	if (!new_o) return;
-	new_o->_link_behind(iter);
+	new_o->link_behind(iter);
 }
 
 void DisplayList::add_left_of (IObject* o, IObject* new_o)
@@ -182,7 +183,7 @@ void DisplayList::add_left_of (IObject* o, IObject* new_o)
 	//   on the same side of an iterator as the reference object.
 
 	if (!new_o) return;
-	new_o->_link_before(o);
+	new_o->link_before(o);
 }
 
 void DisplayList::add_right_of (IObject* o, IObject* new_o)
@@ -192,7 +193,7 @@ void DisplayList::add_right_of (IObject* o, IObject* new_o)
 	//   on the same side of an iterator as the reference object.
 
 	if (!new_o) return;
-	new_o->_link_behind(o);
+	new_o->link_behind(o);
 	if (iter == o) iter = new_o;
 }
 
@@ -254,18 +255,18 @@ uint DisplayList::optimize()
 //						IObject - Interface for Objects
 // =====================================================================
 
-inline IObject::IObject(cstr _name) : _name(_name), _next(this), _prev(this)
+inline IObject::IObject(cstr _name) : name(_name), _next(this), _prev(this)
 {
 	printf("new %s\n",_name);
 }
 
 inline IObject::~IObject()
 {
-	printf("delete %s\n",_name);
+	printf("delete %s\n",name);
 	display_list.remove(this);
 }
 
-void IObject::_link_behind(IObject* p)
+void IObject::link_behind(IObject* p)
 {
 	// link this behind p
 	_prev = p;
@@ -274,7 +275,7 @@ void IObject::_link_behind(IObject* p)
 	_next->_prev = this;
 }
 
-void IObject::_link_before(IObject* n)
+void IObject::link_before(IObject* n)
 {
 	// link this before n
 	_next = n;
@@ -283,7 +284,7 @@ void IObject::_link_before(IObject* n)
 	_prev->_next = this;
 }
 
-void IObject::_unlink()
+void IObject::unlink()
 {
 	_prev->_next = _next;
 	_next->_prev = _prev;
@@ -398,16 +399,16 @@ void Lifes::draw() const
 //							OBJECT
 // =====================================================================
 
-Object::Object (cstr name, Transformation&& t, const Dist& m) :
-	IObject(name), t(std::move(t)), movement(m)
+Object::Object (cstr _name, Transformation&& t, const Dist& m) :
+	IObject(_name), t(std::move(t)), movement(m)
 {}
 
-Object::Object (cstr name, const Transformation& t, const Dist& m) :
-	IObject(name), t(t), movement(m)
+Object::Object (cstr _name, const Transformation& t, const Dist& m) :
+	IObject(_name), t(t), movement(m)
 {}
 
-Object::Object (cstr name, const Point& position, FLOAT orientation, FLOAT scale, const Dist& m) :
-	IObject(name), movement(m)
+Object::Object (cstr _name, const Point& position, FLOAT orientation, FLOAT scale, const Dist& m) :
+	IObject(_name), movement(m)
 {
 	t.setRotationAndScale(orientation,scale);
 	t.setOffset(position);
@@ -415,7 +416,7 @@ Object::Object (cstr name, const Point& position, FLOAT orientation, FLOAT scale
 
 void Object::wrap_at_borders()
 {
-	// ATTN: insertion may be before or after the Iterator!
+	// ATTN: new insertion point may be before or after the Iterator!
 
 	if (t.dx >= MINPOS && t.dx <= MAXPOS && t.dy >= MINPOS && t.dy <= MAXPOS)
 		return;
@@ -425,12 +426,16 @@ void Object::wrap_at_borders()
 	if (t.dy < MINPOS) t.dy += SIZE;
 	if (t.dy > MAXPOS) t.dy -= SIZE;
 
-	_unlink();
+	display_list.remove(this);
 	display_list.add(this);
 }
 
-void Object::move(FLOAT elapsed_time)
+void Object::move (FLOAT elapsed_time)
 {
+	// if the object wraps around the border then the object is
+	// repositioned before or behind the Iterator unpredicably.
+	// => objects may be moved twice during a frame if they wrap
+
 	t.addOffset(movement * elapsed_time);
 	wrap_at_borders();
 }
@@ -441,6 +446,29 @@ void Object::move(FLOAT elapsed_time)
 // =====================================================================
 
 const char _bullet[] = "Bullet";
+static uint max_bullets = 0;
+static char* spare_bullets[46] = {nullptr};
+static uint spare_bullets_count = 0;
+
+void* Bullet::operator new(std::size_t size)
+{
+	num_bullets++;
+	max_bullets = max(max_bullets, num_bullets);
+
+	if (spare_bullets_count)
+		return spare_bullets[--spare_bullets_count];
+	else
+		return new char[size];
+}
+
+void Bullet::operator delete (void* p)
+{
+	num_bullets--;
+	if (spare_bullets_count < NELEM(spare_bullets))
+		spare_bullets[spare_bullets_count++] = ptr(p);
+	else
+		delete[] ptr(p);
+}
 
 Bullet::Bullet (const Point& p, const Dist& m) :
 	Object(_bullet, Transformation(m.dy/*fx*/,m.dy/*fy*/,m.dx/*sx*/,-m.dx/*sy*/,p.x,p.y), m),
@@ -453,7 +481,7 @@ void Bullet::draw() const
 	XY2::drawLine(Point(0,0),Point(0,BULLET_LENGTH/10),fast_straight);
 }
 
-void Bullet::move(FLOAT elapsed_time)
+void Bullet::move (FLOAT elapsed_time)
 {
 	remaining_lifetime -= elapsed_time;
 	if (remaining_lifetime <= 0) { delete this; return; }
@@ -461,7 +489,7 @@ void Bullet::move(FLOAT elapsed_time)
 	Object::move(elapsed_time);
 
 	// hit tests:
-	Point p0 = last();		// position of tip
+	Point p0 = last_point();		// position of tip
 	for (IObject* o = _next; o!=this; o=o->_next)
 	{
 		if (o->hit(p0))
@@ -495,9 +523,9 @@ Asteroid::Asteroid (uint size, const Point& p, const Dist& m, FLOAT rotation) :
 	switch(size)
 	{
 	case 1: num_vertices =  4; radians = SIZE/1000*15; jitter = radians/2; break;
-	case 2: num_vertices =  8; radians = SIZE/1000*22; jitter = radians/2; break;
-	case 3:	num_vertices = 12; radians = SIZE/1000*30; jitter = radians/3; break;
-	default:num_vertices = 16; radians = SIZE/1000*40; jitter = radians/4; break;
+	case 2: num_vertices =  8; radians = SIZE/1000*22; jitter = radians/3; break;
+	case 3:	num_vertices = 12; radians = SIZE/1000*30; jitter = radians/4; break;
+	default:num_vertices = 16; radians = SIZE/1000*40; jitter = radians/5; break;
 	}
 
 	for (uint i=0; i<num_vertices; i++)
@@ -700,7 +728,6 @@ bool Player::hit (const Point& pt)
 		return true;
 	}
 
-	// TODO
 	return false;
 }
 
@@ -818,7 +845,7 @@ void Laseroids::remove_bullets()
 {
 	for (IObject* o = display_list.first(); o; o = display_list.next())
 	{
-		if (o->_name == _bullet) delete o;
+		if (o->name == _bullet) delete o;
 	}
 }
 
@@ -873,6 +900,7 @@ void Laseroids::runOneFrame()
 		assert(lifes == nullptr);
 		assert(score == nullptr);
 		assert(num_asteroids == 0);
+		assert(num_bullets == 0);
 
 		display_list.add(new Lifes);
 		display_list.add(new Score);
@@ -953,7 +981,11 @@ void Laseroids::runOneFrame()
 		draw_big_message("GAME OVER");
 
 		state_countdown -= elapsed_time;
-		if (state_countdown <= 0) state = IDLE;
+		if (state_countdown <= 0)
+		{
+			printf("max_bullets = %u\n", max_bullets);
+			state = IDLE;
+		}
 		return;
 	}
 	default:

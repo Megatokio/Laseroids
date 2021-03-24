@@ -19,18 +19,18 @@ public:
 	IObject& operator=(const IObject&) = delete;
 
 	virtual Point origin() const = 0;
-	virtual Point first() const { return origin(); }	// start of polygon / drawing
-	virtual Point last() const { return first(); }		// end of polygon / drawing
+	virtual Point first_point() const { return origin(); }		// start of polygon / drawing
+	virtual Point last_point() const { return first_point(); }	// end of polygon / drawing
 	virtual void draw() const = 0;
 	virtual void move(FLOAT elapsed_time) = 0;
 	virtual bool hit (const Point&) { return false; }
 
-	cstr _name;
+	cstr name;
 	IObject* _next;
 	IObject* _prev;
-	void _link_behind(IObject* p);	// link this behind p
-	void _link_before(IObject* n);	// link this before n
-	void _unlink();
+	void link_behind(IObject* p);	// link this behind p
+	void link_before(IObject* n);	// link this before n
+	void unlink();
 };
 
 
@@ -49,16 +49,14 @@ public:
 
 	uint optimize();
 	bool try_revert_path (IObject* a, IObject* b);
-	IObject* _best_insertion_point (IObject* new_o);
+	IObject* best_insertion_point (IObject* new_o);
 
 	// iterate:
 	IObject* first(){ iter = root; return iter; }
 	IObject* next()	{ if (iter) iter = iter->_next; return iter==root ? nullptr : iter; }
 
 	IObject* root = nullptr;
-
-	IObject* iter = nullptr;	// points at recently with _next() returned item
-								// logical position is between iter and iter->_next
+	IObject* iter = nullptr;	// points at recently with next() returned item
 };
 
 
@@ -130,13 +128,16 @@ public:
 	void rotate(FLOAT angle) { if(angle != 0) t.rotate(angle); }
 
 	Transformation t;	// -> position, rotation and scale
-	Dist  movement;		// dx,dy
+	Dist movement;		// dx,dy
 };
 
 
 class Bullet : public Object
 {
 public:
+	void* operator new(std::size_t size);
+	void operator delete(void*);
+
 	Bullet(const Point& position, const Dist& movement);
 
 	virtual void draw() const override;

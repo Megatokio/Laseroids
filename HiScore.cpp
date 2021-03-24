@@ -95,7 +95,7 @@ void HiScores::print() const
 	printf("*** HISCORES ***\n");
 	for (uint i=0; i<NELEM(hiscores); i++)
 	{
-		printf("%2u: ",i);
+		printf("%2u:",i);
 		hiscores[i].print();
 	}
 	printf("\n");

@@ -43,9 +43,8 @@
 info.vh
 tmp/
 build/
-
-
-
-
-
+build-
 *.user
+Data sheets/
+Images/
+Info/

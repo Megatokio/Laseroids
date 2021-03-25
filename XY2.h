@@ -216,7 +216,6 @@ public:
 
 
 private:
-	static void start_core1();	// -> worker()
 	static void worker();		// on core1
 
 	static void update_transformation ();

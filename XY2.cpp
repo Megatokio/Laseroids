@@ -17,6 +17,7 @@
 #include "XY2-100.pio.h"
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
+#include <string.h>
 
 
 //static inline FLOAT sin (FLOAT a) { return sinf(a); }
@@ -67,9 +68,9 @@ static uint laser_delay_index = 0;
 static_assert(LASER_QUEUE_DELAY <= NELEM(laser_delay_queue),"");
 
 
-static volatile bool core1_running = false;
-static volatile bool core1_suspended = false;
-#define c2c_syncflag  0xf287affe
+static volatile bool core1_running = false;   // core1 was started. only ever set.
+static volatile bool core1_suspend = false;   // request core1 to suspend & detach from flash
+static volatile bool core1_suspended = false; // core1 is suspended & detached from flash
 
 
 // store new value in laser_delay_queue[] and return old value
@@ -351,20 +352,106 @@ void XY2::transform (FLOAT fx, FLOAT fy, FLOAT sx, FLOAT sy, FLOAT dx, FLOAT dy)
 }
 
 
-void XY2::start_core1()
+void XY2::start()
 {
-	if (core1_running) return;
-	core1_running = true;
-
-	multicore_launch_core1(XY2::worker);
-	uint32 f = multicore_fifo_pop_blocking();
-	if (f != c2c_syncflag) { printf("core%i: wrong flag\n",0); for(;;); }
-	multicore_fifo_push_blocking(c2c_syncflag);
+	if (!core1_running) multicore_launch_core1(XY2::worker);
+	while (!core1_running) {}
 	printf("core1 up and running\n");
-	core1_suspended = false;
 }
 
-static volatile bool core1_suspend = false;
+void XY2::init()
+{
+	// initialize pio and state machines
+
+	// initialize LEDs:
+	gpio_init(led_heartbeat);  gpio_set_dir(led_heartbeat, GPIO_OUT);  gpio_put(led_heartbeat,0);
+	gpio_init(led_core0_idle); gpio_set_dir(led_core0_idle, GPIO_OUT); gpio_put(led_core0_idle,0);
+	gpio_init(led_core1_idle); gpio_set_dir(led_core1_idle, GPIO_OUT); gpio_put(led_core1_idle,0);
+	gpio_init(led_error); 	   gpio_set_dir(led_error, GPIO_OUT);	   gpio_put(led_error,0);
+
+
+	// initialize pio:
+	// for some reason this is done using a state machine:
+
+	// set initial pin states in the pio:
+	// set all to 1 except laser:
+	uint mask  = (1<<pin_laser)+(1<<pin_sync_xy)+(3<<pin_clock)+(3<<pin_sync)+(3<<pin_x)+(3<<pin_y);
+	uint value = ~(1u<<pin_laser);
+	pio_sm_set_pins_with_mask(pio, sm_x, value, mask);
+
+	// set i/o direction for pins in the pio:
+	// set all to output:
+	pio_sm_set_pindirs_with_mask(pio, sm_x, -1u, mask);
+
+	// set gpio to use pio output for pins:
+	// for some reason there is no convenience method:
+	for(uint i=0;i<32;i++) { if (mask & (1<<i)) pio_gpio_init(pio, i); }
+
+
+	// initialize state machines:
+
+	// load CLOCK program into pio:
+	uint offset = pio_add_program(pio, &xy2_clock_program);
+
+	// configure the SM:
+	pio_sm_config c = xy2_clock_program_get_default_config(offset);
+	sm_config_set_sideset_pins(&c, pin_clock);
+	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
+	pio_sm_init(pio, sm_clock, offset + xy2_clock_offset_start, &c);
+
+	// load DATA program into pio:
+	offset = pio_add_program(pio, &xy2_data_program);
+
+	// configure state machines:
+	c = xy2_data_program_get_default_config(offset);
+	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
+	sm_config_set_out_shift(&c, false/*shift left not right*/, false /*!autopull*/, 32 /*pull_threshold*/);
+	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+	sm_config_set_jmp_pin(&c, pin_sync_xy);
+
+	sm_config_set_sideset_pins(&c, pin_x);      // pins for 'side setting' of x+ and x-
+	pio_sm_init(pio, sm_x, offset + xy2_data_offset_start, &c);
+
+	sm_config_set_sideset_pins(&c, pin_y);      // pins for 'side setting' of y+ and y-
+	pio_sm_init(pio, sm_y, offset + xy2_data_offset_start, &c);
+
+	// load LASER program into pio:
+	offset = pio_add_program(pio, &xy2_laser_program);
+
+	// configure state machines:
+	c = xy2_laser_program_get_default_config(offset);
+	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
+	sm_config_set_out_shift(&c, true/*shift right*/, false /*!autopull*/, 10 /*pull_threshold*/);
+	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+	sm_config_set_mov_status(&c, STATUS_TX_LESSTHAN, 1);	// for MOV X,STATUS
+	sm_config_set_out_pins(&c, pin_laser, 1);        		// pin used to shift out laser data
+	sm_config_set_sideset_pins(&c, pin_sync_xy);      		// pin used for fifo synchronization
+	pio_sm_init(pio, sm_laser, offset + xy2_laser_offset_start, &c);
+
+
+	// final configuration of GPIOs:
+	gpio_set_outover(pin_laser,GPIO_OVERRIDE_INVERT); 		// invert output: '1' = ON => pin low
+
+	// count underruns:
+	// => setup a counter to count pulses on PIN_XY2_SYNC_XY
+	// which should be high all the time but is low on fifo empty state.
+	// it seems not possible to read back PIN_XY2_SYNC_XY directly:
+	const uint gpio = pin_sync_xy_readback;
+	// Only PWM B pins (odd pin numbers) can be used as inputs:
+	assert(pwm_gpio_to_channel(gpio) == PWM_CHAN_B);
+	pwm_slice_num = pwm_gpio_to_slice_num(gpio);
+
+	// configure the PWM for counter mode:
+	pwm_config cfg = pwm_get_default_config();
+	pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
+	pwm_init(pwm_slice_num, &cfg, true);
+	gpio_set_function(gpio, GPIO_FUNC_PWM);
+	gpio_set_dir(gpio,GPIO_IN);
+	pwm_underruns = pwm_get_counter(pwm_slice_num);
+
+	// misc.:
+	vt_init_vector_font();
+}
 
 void __no_inline_not_in_flash_func(suspend_no_flash) ()
 {
@@ -385,15 +472,15 @@ void XY2::resume()
 	do { __sev(); } while (core1_suspended);
 }
 
-
 void XY2::worker()
 {
-	multicore_fifo_push_blocking(c2c_syncflag);
-	uint32 f = multicore_fifo_pop_blocking();
-	if (f != c2c_syncflag) { printf("core%i: wrong flag\n",1); for(;;); }
+	while (laser_queue.avail()) (void)laser_queue.pop();
 
-#if XY2_CLAMPING_METHOD == XY2_CLAMPING_INTERP
-	// The Interpolators are per-core
+	core1_running = true;
+	core1_suspended = false;
+
+	#if XY2_CLAMPING_METHOD == XY2_CLAMPING_INTERP
+	// Each core has it's own interpolators
 	// therefore we must configure it from core1 itself:
 	//
 	// Clamping on Interpolator 1
@@ -406,9 +493,23 @@ void XY2::worker()
 	interp_set_config(interp1, 0/*lane*/, &icfg);
 	interp1->base[0] = uint32(SCANNER_MIN);		// lower limit
 	interp1->base[1] = uint32(SCANNER_MAX);		// upper limit
-#endif
+	#endif
 
+	// start the state machines:
+	pio_sm_set_enabled(pio, sm_laser, false);
+	pio_sm_set_enabled(pio, sm_clock, false);
+	pio_sm_set_enabled(pio, sm_x, false);
+	pio_sm_set_enabled(pio, sm_y, false);
 
+	pio_sm_clear_fifos(pio, sm_laser);
+	pio_sm_clear_fifos(pio, sm_x);
+	pio_sm_clear_fifos(pio, sm_y);
+
+	// Enable multiple PIO state machines synchronizing their clock dividers
+	pio_enable_sm_mask_in_sync(pio, (1<<sm_clock)+(1<<sm_x)+(1<<sm_y)+(1<<sm_laser));
+
+	// send first point to center and switch off laser
+	memset(laser_delay_queue,0,sizeof(laser_delay_queue));
 	pio_send_data(FLOAT(0),FLOAT(0), 0x000);
 
 	for(;;)
@@ -518,124 +619,11 @@ void XY2::worker()
 }
 
 
-void XY2::init()
-{
-	// initialize pio and state machines
-
-	// initialize LEDs:
-	gpio_init(led_heartbeat);  gpio_set_dir(led_heartbeat, GPIO_OUT);  gpio_put(led_heartbeat,0);
-	gpio_init(led_core0_idle); gpio_set_dir(led_core0_idle, GPIO_OUT); gpio_put(led_core0_idle,0);
-	gpio_init(led_core1_idle); gpio_set_dir(led_core1_idle, GPIO_OUT); gpio_put(led_core1_idle,0);
-	gpio_init(led_error); 	   gpio_set_dir(led_error, GPIO_OUT);	   gpio_put(led_error,0);
-
-
-	// initialize pio:
-	// for some reason this is done using a state machine:
-
-	// set initial pin states in the pio:
-	// set all to 1 except laser:
-	uint mask  = (1<<pin_laser)+(1<<pin_sync_xy)+(3<<pin_clock)+(3<<pin_sync)+(3<<pin_x)+(3<<pin_y);
-	uint value = ~(1u<<pin_laser);
-	pio_sm_set_pins_with_mask(pio, sm_x, value, mask);
-
-	// set i/o direction for pins in the pio:
-	// set all to output:
-	pio_sm_set_pindirs_with_mask(pio, sm_x, -1u, mask);
-
-	// set gpio to use pio output for pins:
-	// for some reason there is no convenience method:
-	for(uint i=0;i<32;i++) { if (mask & (1<<i)) pio_gpio_init(pio, i); }
-
-
-	// initialize state machines:
-
-	// load CLOCK program into pio:
-	uint offset = pio_add_program(pio, &xy2_clock_program);
-
-	// configure the SM:
-	pio_sm_config c = xy2_clock_program_get_default_config(offset);
-	sm_config_set_sideset_pins(&c, pin_clock);
-	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
-	pio_sm_init(pio, sm_clock, offset + xy2_clock_offset_start, &c);
-
-	// load DATA program into pio:
-	offset = pio_add_program(pio, &xy2_data_program);
-
-	// configure state machines:
-	c = xy2_data_program_get_default_config(offset);
-	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
-	sm_config_set_out_shift(&c, false/*shift left not right*/, false /*!autopull*/, 32 /*pull_threshold*/);
-	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-	sm_config_set_jmp_pin(&c, pin_sync_xy);
-
-	sm_config_set_sideset_pins(&c, pin_x);      // pins for 'side setting' of x+ and x-
-	pio_sm_init(pio, sm_x, offset + xy2_data_offset_start, &c);
-
-	sm_config_set_sideset_pins(&c, pin_y);      // pins for 'side setting' of y+ and y-
-	pio_sm_init(pio, sm_y, offset + xy2_data_offset_start, &c);
-
-	// load LASER program into pio:
-	offset = pio_add_program(pio, &xy2_laser_program);
-
-	// configure state machines:
-	c = xy2_laser_program_get_default_config(offset);
-	sm_config_set_clkdiv(&c, float(MAIN_CLOCK) / XY2_SM_CLOCK);
-	sm_config_set_out_shift(&c, true/*shift right*/, false /*!autopull*/, 10 /*pull_threshold*/);
-	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-	sm_config_set_mov_status(&c, STATUS_TX_LESSTHAN, 1);	// for MOV X,STATUS
-	sm_config_set_out_pins(&c, pin_laser, 1);        		// pin used to shift out laser data
-	sm_config_set_sideset_pins(&c, pin_sync_xy);      		// pin used for fifo synchronization
-	pio_sm_init(pio, sm_laser, offset + xy2_laser_offset_start, &c);
-
-
-	// final configuration of GPIOs:
-	gpio_set_outover(pin_laser,GPIO_OVERRIDE_INVERT); 		// invert output: '1' = ON => pin low
-
-	// count underruns:
-	// => setup a counter to count pulses on PIN_XY2_SYNC_XY
-	// which should be high all the time but is low on fifo empty state.
-	// it seems not possible to read back PIN_XY2_SYNC_XY directly:
-	const uint gpio = pin_sync_xy_readback;
-	// Only PWM B pins (odd pin numbers) can be used as inputs:
-	assert(pwm_gpio_to_channel(gpio) == PWM_CHAN_B);
-	pwm_slice_num = pwm_gpio_to_slice_num(gpio);
-
-	// configure the PWM for counter mode:
-	pwm_config cfg = pwm_get_default_config();
-	pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
-	pwm_init(pwm_slice_num, &cfg, true);
-	gpio_set_function(gpio, GPIO_FUNC_PWM);
-	gpio_set_dir(gpio,GPIO_IN);
-	pwm_underruns = pwm_get_counter(pwm_slice_num);
-
-	// misc.:
-	vt_init_vector_font();
-}
-
 uint16 XY2::getUnderruns()
 {
 	int d = pwm_get_counter(pwm_slice_num) - pwm_underruns;
 	pwm_underruns += d;
 	return uint16(d);
-}
-
-void XY2::start()
-{
-	pio_sm_set_enabled(pio, sm_laser, false);
-	pio_sm_set_enabled(pio, sm_clock, false);
-	pio_sm_set_enabled(pio, sm_x, false);
-	pio_sm_set_enabled(pio, sm_y, false);
-
-	pio_sm_clear_fifos(pio, sm_laser);
-	pio_sm_clear_fifos(pio, sm_x);
-	pio_sm_clear_fifos(pio, sm_y);
-
-	// Enable multiple PIO state machines synchronizing their clock dividers
-	pio_enable_sm_mask_in_sync(pio, (1<<sm_clock)+(1<<sm_x)+(1<<sm_y)+(1<<sm_laser));
-
-	assert(!core1_running);
-	assert(laser_queue.avail() == 0);
-	start_core1();
 }
 
 

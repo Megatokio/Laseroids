@@ -392,6 +392,23 @@ void XY2::worker()
 	uint32 f = multicore_fifo_pop_blocking();
 	if (f != c2c_syncflag) { printf("core%i: wrong flag\n",1); for(;;); }
 
+#if XY2_CLAMPING_METHOD == XY2_CLAMPING_INTERP
+	// The Interpolators are per-core
+	// therefore we must configure it from core1 itself:
+	//
+	// Clamping on Interpolator 1
+	// Clamping is only available on Interpolator 1
+	interp_config icfg = interp_default_config();
+	interp_config_set_clamp(&icfg, true);		// select clamping [base0 .. base1]
+	interp_config_set_cross_input(&icfg,false);	// lane0 input from accu0
+	interp_config_set_signed(&icfg, true);		// select signed compare
+	interp_config_set_add_raw(&icfg,true);		// bypass shift+mask
+	interp_set_config(interp1, 0/*lane*/, &icfg);
+	interp1->base[0] = uint32(SCANNER_MIN);		// lower limit
+	interp1->base[1] = uint32(SCANNER_MAX);		// upper limit
+#endif
+
+
 	pio_send_data(FLOAT(0),FLOAT(0), 0x000);
 
 	for(;;)

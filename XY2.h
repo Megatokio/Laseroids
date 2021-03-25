@@ -12,7 +12,11 @@
 #include <functional>
 #include "Queue.h"
 #include "pico/multicore.h"
-
+#if XY2_CLAMPING_METHOD == XY2_CLAMPING_INTERP
+extern "C"{
+#include "hardware/interp.h"
+}
+#endif
 
 struct LaserSet
 {
@@ -245,20 +249,48 @@ private:
 
 	static void pio_send_data (FLOAT x, FLOAT y, uint32 laser)
 	{
+		pos0.x = x;
+		pos0.y = y;
+		laser = delayed_laser_value(laser);
+
+#if XY2_CLAMPING_METHOD == XY2_CLAMPING_FLOAT
+		x = minmax(-0x8000, x, 0x7fff);		// limiter: optional
+		y = minmax(-0x7fff, y, 0x8000);		// limiter: optional
+
+		pio_sm_put(pio, sm_x, 0x8000 + int(x));
+		pio_sm_put(pio, sm_y, 0x8000 - int(y));	// y inverted for pos. y axis
+		pio_sm_put(pio, sm_laser, laser);
+
+#elif XY2_CLAMPING_METHOD == XY2_CLAMPING_INT
+	#if SCANNER_WIDTH == 0x10000
+		uint32 ix = 0x8000 + int32(x);
+		uint32 iy = 0x8000 - int32(y);
+		if (ix>>16) ix = int32(ix)<0 ? 0 : 0xffff;	// if (ix != uint16(ix))
+		if (iy>>16) iy = int32(iy)<0 ? 0 : 0xffff;	// if (iy != uint16(iy))
+		pio_sm_put(pio, sm_x, ix);
+		pio_sm_put(pio, sm_y, iy);
+		pio_sm_put(pio, sm_laser, laser);
+	#else
+		int ix = minmax(0, 0x8000+int(x), 0xffff);
+		int iy = minmax(0, 0x8000-int(y), 0xffff); // y inverted for pos. y axis
+		pio_sm_put(pio, sm_x, uint(ix));
+		pio_sm_put(pio, sm_y, uint(iy));
+		pio_sm_put(pio, sm_laser, laser);
+	#endif
+#elif XY2_CLAMPING_METHOD == XY2_CLAMPING_INTERP
+		interp1->accum[0] = uint32(0x8000+int(x));
+		pio_sm_put(pio, sm_x, interp1->peek[0]);
+		interp1->accum[0] = uint32(0x8000-int(y));	// y inverted for pos. y axis
+		pio_sm_put(pio, sm_y, interp1->peek[0]);
+		pio_sm_put(pio, sm_laser, laser);
+#endif
+
 		if (--heart_beat_counter == 0)
 		{
 			heart_beat_counter = XY2_DATA_CLOCK / 2;    // => 1 Hz
 			heart_beat_state = !heart_beat_state;
 			gpio_put(led_heartbeat, heart_beat_state);
 		}
-
-		pos0.x = x; x = minmax(-0x8000, x, 0x7fff);		// limiter: optional
-		pos0.y = y; y = minmax(-0x7fff, y, 0x8000);		// limiter: optional
-		laser = delayed_laser_value(laser);
-
-		pio_sm_put(pio, sm_x, 0x8000 + int(x));
-		pio_sm_put(pio, sm_y, 0x8000 - int(y));	// y inverted for pos. y axis
-		pio_sm_put(pio, sm_laser, laser);
 	}
 
 	static void send_data_blocking (const Point& p, uint32 laser)

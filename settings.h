@@ -44,20 +44,12 @@ constexpr uint PIN_XY2_LASER	= 22; // laser on/off
 #define   PIO_XY2 pio0
 
 
-// Options:
-#define XY2_CLAMPING_FLOAT 1	// limit x and y coord using float
-#define XY2_CLAMPING_INT 2		// limit x and y coord using int
-#define XY2_CLAMPING_INTERP 3	// limit x and y coord using the Pico interpolator
-
-#define XY2_CLAMPING_METHOD  XY2_CLAMPING_INT
-
-
 // Scanner data:
 constexpr FLOAT SCANNER_MAX_SWIVELS  = 15000/120;	// data sheet: 15m/s @ 12cm
 
 constexpr int32 SCANNER_MIN			= 0;
 constexpr int32 SCANNER_MAX			= 0xffff;
-#define			SCANNER_WIDTH   	  0x10000u
+constexpr int32 SCANNER_WIDTH   	= 0x10000u;
 constexpr FLOAT SCANNER_MAX_SPEED	= SCANNER_MAX_SWIVELS * SCANNER_WIDTH / XY2_DATA_CLOCK;
 
 

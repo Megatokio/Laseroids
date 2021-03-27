@@ -29,6 +29,5 @@ pico_enable_stdio_usb(Laseroids 1)
 pico_enable_stdio_uart(Laseroids 1)
 target_link_libraries(Laseroids pico_stdlib hardware_rtc pico_multicore hardware_pio hardware_dma)
 target_link_libraries(Laseroids hardware_i2c hardware_adc hardware_irq hardware_pwm hardware_flash)
-target_link_libraries(Laseroids hardware_interp)
 pico_add_extra_outputs(Laseroids)
 

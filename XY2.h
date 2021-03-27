@@ -12,6 +12,9 @@
 #include <functional>
 #include "Queue.h"
 #include "pico/multicore.h"
+#if XY2_USE_MAP
+#include "Interpolator.h"
+#endif
 
 
 struct LaserSet
@@ -154,6 +157,10 @@ public:
 	static uint heart_beat_counter;
 	static uint heart_beat_state;
 
+	#if XY2_USE_MAP
+	static Point2D map[];
+	#endif
+
 	static Point pos0;		// current scanner position (after transformation)
 
 	static Transformation transformation0;			// transformation used by core0 (App)
@@ -166,6 +173,14 @@ public:
 	static void start();
 	static void suspend();
 	static void resume();
+	#if XY2_USE_MAP
+	// setup distortion correction map
+	// function is called from nested loops:
+	//		for(y=0…1<<map_bits)for(x=0…1<<map_bits){fu(x,y)}
+	//		returned coordinates must be in range SCANNER_MIN to SCANNER_MAX
+	//		except for x=1<<map_bits and y=1<<max_bits which may by SCANNER_MAX + 1
+	static void init_map(std::function<Point2D(uint x, uint y)> fu);
+	#endif
 
 	// core0: push to laser_queue:
 	static void moveTo (const Point& dest);
@@ -248,6 +263,17 @@ private:
 		pos0.y = y;
 		laser = delayed_laser_value(laser);
 
+	#if XY2_USE_MAP
+		Point2D p{uint32(0x8000 + int32(x)), uint32(0x8000 - int32(y))};
+	  #if XY2_USE_MAP_PICO_INTERP
+		p = map2D_Pico<XY2_MAP_BITS,XY2_LOW_BITS>(p,map);
+	  #else
+		p = map2D<XY2_MAP_BITS,XY2_LOW_BITS>(p,map);
+	  #endif
+		pio_sm_put(pio, sm_x, p.x);
+		pio_sm_put(pio, sm_y, p.y);
+		pio_sm_put(pio, sm_laser, laser);
+	#else
 		uint32 ix = 0x8000 + int32(x);
 		uint32 iy = 0x8000 - int32(y);
 		if (ix>>16) ix = int32(ix)<0 ? 0 : 0xffff;
@@ -255,6 +281,7 @@ private:
 		pio_sm_put(pio, sm_x, ix);
 		pio_sm_put(pio, sm_y, iy);
 		pio_sm_put(pio, sm_laser, laser);
+	#endif
 
 		if (--heart_beat_counter == 0)
 		{

@@ -227,13 +227,13 @@ int main()
 			{
 			case 0:
 				load_sensor.getCore0Load(min,avg,max);
-				printf("load core0 = %i%% %i%% %i%% (min,avg,max)\n",
-					   int(min+r), int(avg+r), int(max+r));
+				printf("load core0 = %2i%% %2i.%01u%% %2i%% (min,avg,max)\n",
+					   int(min+r), int(avg), int(avg*10)%10, int(max+r));
 				break;
 			case 1:
 				load_sensor.getCore1Load(min,avg,max);
-				printf("load core1 = %i%% %i%% %i%% (min,avg,max)\n",
-					   int(min+r), int(avg+r), int(max+r));
+				printf("load core1 = %2i%% %2i.%01u%% %2i%% (min,avg,max)\n",
+					   int(min+r), int(avg), int(avg*10)%10, int(max+r));
 				break;
 			case 2:
 				printf("temperature = %.1f°C\n", double(load_sensor.getTemperature()));

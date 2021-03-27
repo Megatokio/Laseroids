@@ -67,10 +67,33 @@ static uint laser_delay_size = LASER_QUEUE_DELAY;
 static uint laser_delay_index = 0;
 static_assert(LASER_QUEUE_DELAY <= NELEM(laser_delay_queue),"");
 
-
 static volatile bool core1_running = false;   // core1 was started. only ever set.
 static volatile bool core1_suspend = false;   // request core1 to suspend & detach from flash
 static volatile bool core1_suspended = false; // core1 is suspended & detached from flash
+
+#if XY2_USE_MAP
+	Point2D XY2::map[((1<<XY2_MAP_BITS)+1)*((1<<XY2_MAP_BITS)+1)];
+
+	void XY2::init_map (std::function<Point2D(uint x, uint y)> fu)
+	{
+		static constexpr uint bits = XY2_MAP_BITS;
+
+		Point2D* p = XY2::map;
+		for (uint y = 0; y <= 1<<bits; y++)
+		for (uint x = 0; x <= 1<<bits; x++)
+		{
+			*p++ = fu(x,y);
+		}
+	}
+
+	static void init_map2D()
+	{
+		// setup 1:1 mapping
+
+		static constexpr uint bits = XY2_LOW_BITS;
+		XY2::init_map([](uint x,uint y){return Point2D(x<<bits,y<<bits);});
+	}
+#endif
 
 
 // store new value in laser_delay_queue[] and return old value
@@ -451,6 +474,9 @@ void XY2::init()
 
 	// misc.:
 	vt_init_vector_font();
+	#if XY2_USE_MAP
+	init_map2D();
+	#endif
 }
 
 void __no_inline_not_in_flash_func(suspend_no_flash) ()
@@ -478,6 +504,20 @@ void XY2::worker()
 
 	core1_running = true;
 	core1_suspended = false;
+
+	#if XY2_USE_MAP && XY2_USE_MAP_PICO_INTERP
+	interp_config cfg = interp_default_config();
+	interp_config_set_blend(&cfg, true);
+	interp_set_config(interp0, 0, &cfg);				// reset lane 0
+
+	cfg = interp_default_config();
+	interp_config_set_shift(&cfg,(XY2_LOW_BITS-8)&31);	// right shift!
+	interp_config_set_mask(&cfg,0,7);					// not neccessary
+	// note: signed is required, if input values can be both positive and negative.
+	// we could always use signed except when using left-aligned full 32 bit unsigned coordinates.
+	interp_config_set_signed(&cfg, SCANNER_MIN!=0);
+	interp_set_config(interp0, 1, &cfg);
+	#endif
 
 	// start the state machines:
 	pio_sm_set_enabled(pio, sm_laser, false);

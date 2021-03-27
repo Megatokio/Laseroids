@@ -61,6 +61,12 @@ constexpr uint LASER_MIDDLE_DELAY = 6; 	// how many steps to wait at poly line c
 constexpr uint LASER_JUMP_DELAY = 20;	// after jump
 
 
+// use a distortion correction map?
+#define XY2_USE_MAP 1
+#define XY2_USE_MAP_PICO_INTERP 1
+#define XY2_MAP_BITS 6
+#define XY2_LOW_BITS 10		// 6+10 = scanner width
+
 #define XY2_IMPLEMENT_ANALOGUE_CLOCK_DEMO
 #define XY2_IMPLEMENT_CHECKER_BOARD_DEMO
 #define XY2_IMPLEMENT_LISSAJOUS_DEMO

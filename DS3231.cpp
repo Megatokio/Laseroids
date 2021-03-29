@@ -16,6 +16,10 @@
 i2c_inst* DS3231::i2c_port = RTC_I2C_PORT;
 
 
+// base for day-of-week in DS3231 is 1, but for datetime_t it is 0:
+template<typename T = datetime_t> constexpr uint8 dotw_base = 0;
+
+
 void DS3231::init_i2c()
 {
 	//_port = port;
@@ -115,7 +119,7 @@ DS3231::ErrNo DS3231::readDate (datetime_t& current_date)
 	if (x & (1<<6)) { current_date.hour = int8(bcd2bin(x & 0b00011111)) + (x & (1<<5) ? 0 : 12); }
 	else { current_date.hour = int8(bcd2bin(x & 0b00111111)); }
 
-	current_date.dotw = int8(bcd2bin(bu[3]));
+	current_date.dotw = int8(bu[3]&0x07 - 1 + dotw_base<datetime_t>);
 	current_date.day  = int8(bcd2bin(bu[4]));
 
 	// note: bit 7 of month is century bit: ignored
@@ -133,7 +137,7 @@ DS3231::ErrNo DS3231::writeDate (const datetime_t& current_date)
 		bin2bcd(uint8(current_date.sec)),
 		bin2bcd(uint8(current_date.min)),
 		bin2bcd(uint8(current_date.hour)),		// 24 hour format
-		current_date.dotw ? uint8(current_date.dotw) : uint8(1),
+		uint8(current_date.dotw - dotw_base<datetime_t> + 1),
 		bin2bcd(uint8(current_date.day)),
 		bin2bcd(uint8(current_date.month)),		// note: century bit ignored
 		bin2bcd(uint8(current_date.year % 100)),

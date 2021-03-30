@@ -8,9 +8,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "cdefs.h"
-extern "C"{
 #include "hardware/flash.h"
-}
 
 
 extern char __flash_binary_end;

@@ -14,13 +14,8 @@
 #include "XY2.h"
 #include "utilities.h"
 #include "demos.h"
-extern "C" {
 #include "hardware/rtc.h"
-#include <pico/bootrom.h>
-}
-//#include "pico/util/datetime.h"
-//#include "hardware/divider.h"
-//#include "pico/divider.h"
+#include "pico/bootrom.h"
 #include "hardware/pwm.h"
 #include "Laseroids.h"
 #include "OledDisplay.h"
